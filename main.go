@@ -1,6 +1,7 @@
 package main
 
 import (
+  "strings"
   "fmt"
   "log"
   "io/ioutil"
@@ -24,13 +25,18 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
     if !ok {
       m := new(dns.Msg)
       m.SetRcode(r, dns.RcodeNameError)
-      //m.Ns = []dns.RR{soa(n)}
+      //TODO m.Ns = []dns.RR{soa(n)}
       w.WriteMsg(m)
       break
     }
 
     msg.Answer = append(msg.Answer, &dns.A{
-      Hdr: dns.RR_Header{ Name: record.Label, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: uint32(record.Ttl) },
+      Hdr: dns.RR_Header{
+        Name: record.Label,
+        Rrtype: dns.TypeA,
+        Class: dns.ClassINET,
+        Ttl: uint32(record.Ttl),
+      },
       A: net.ParseIP(record.Value),
     })
   }
@@ -44,13 +50,30 @@ type Record struct {
   Value  string
 }
 
-func ParseZoneFile(file string) (*Record, error){
-  return &Record {
-    Label: "label",
-    Rrtype: "A",
-    Ttl: 1,
-    Value: "value",
-  }, nil
+// lifted and modified from cli53 code for this
+func ParseZoneFile(zone string) ([]Record, error) {
+  tokensch := dns.ParseZone(strings.NewReader(zone), ".", "")
+  records := make([]Record, 0)
+
+  for token := range tokensch {
+    if token.Error != nil {
+      return nil, fmt.Errorf("token error: %s\n", token.Error)
+    }
+    switch rec := token.RR.(type) {
+    case *dns.A:
+      log.Printf("%v\n", rec)
+      record := Record{
+        Label:   rec.Header().Name,
+        Rrtype:  string(rec.Header().Rrtype),
+        Ttl:     int(rec.Header().Ttl),
+        Value:   rec.A.String(),
+      }
+      //record := parseComment(token.RR, token.Comment)
+      records = append(records, record)
+    }
+  }
+
+  return records, nil
 }
 
 func NewServer() (*Server, error) {
@@ -79,11 +102,15 @@ func main() {
     if err != nil {
       log.Fatalf("could not read zone file [%s]: %s\n", file, err)
     }
-    record, err := ParseZoneFile(string(file))
+    records, err := ParseZoneFile(string(file))
     if err != nil {
       log.Fatalf("could not parse zone file [%s]: %s\n", file, err)
     }
-    server.ACache.Add(record.Label, record)
+    for _, record := range records {
+      log.Printf("adding [%s]\n", record.Value)
+      // TODO one function to make the keys, please
+      server.ACache.Add(record.Label, &record)
+    }
   }
   // read in zone files, if configured to do so
   // set up DNS server
