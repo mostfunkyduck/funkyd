@@ -15,7 +15,9 @@ func setupCache(t *testing.T) *RecordCache {
 }
 
 func setupRecord(t *testing.T) *Record {
-  return &Record{}
+  return &Record{
+    Key: "key",
+  }
 }
 
 func TestCache(t *testing.T) {
@@ -25,9 +27,10 @@ func TestCache(t *testing.T) {
 func TestStorage(t *testing.T) {
   cache := setupCache(t)
   record := setupRecord(t)
+  record.Ttl = 1099 * time.Second
+  record.CreationTime = time.Now()
   cache.Add(record)
   arecs, ok := cache.Get(record.Key, record.Qtype)
-
   if !ok {
     t.Errorf("cache retrieval failed")
     return
@@ -42,7 +45,7 @@ func TestStorage(t *testing.T) {
   }
 
   cache.Remove(record)
-  newrecord, ok := cache.Get("key", record.Qtype)
+  newrecord, ok := cache.Get(record.Key, record.Qtype)
   if ok {
     t.Errorf("deletion didn't work: [%v] [%v]\n", cache, newrecord)
   }
@@ -51,8 +54,8 @@ func TestStorage(t *testing.T) {
 func TestClean(t *testing.T) {
   cache := setupCache(t)
   record := setupRecord(t)
-  record.Ttl = 10
-  record.CreationTime = time.Now().Add(-15)
+  record.Ttl = 10 * time.Second
+  record.CreationTime = time.Now().Add(-15 * time.Second)
   cache.Add(record)
   _, ok := cache.Get(record.Key, record.Qtype)
   if !ok {

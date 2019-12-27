@@ -40,6 +40,7 @@ func (server *Server) RecursiveQuery(domain string, rrtype uint16) ([]Record, er
   **/
   for _, a := range r.Answer {
     r := Record {
+      Key: domain,
       Entry: a,
       Qtype: rrtype,
       CreationTime: time.Now(),
@@ -57,10 +58,10 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) ([]*Record, 
   var records []*Record
 
   // First: check cache
-  log.Printf("retrieving %s from cache", domain)
-  server.Cache.RLock()
+  log.Printf("retrieving %s from cache [%v]", domain, server)
+  server.Cache.Lock()
+  defer server.Cache.Unlock()
   cached_records, ok := server.Cache.Get(domain, rrtype)
-  defer server.Cache.RUnlock()
   if ok {
     return cached_records, nil
   }
@@ -73,9 +74,7 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) ([]*Record, 
   }
   for _, record := range qrec {
     log.Printf("adding %v\n", record)
-    server.Cache.Lock()
     server.Cache.Add(&record)
-    server.Cache.Unlock()
     log.Printf("done adding %v\n", record)
     records = append(records, &record)
   }
@@ -83,6 +82,7 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) ([]*Record, 
 }
 
 func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+  log.Printf("server: [%v]", server)
   msg := dns.Msg{}
   msg.SetReply(r)
   domain := msg.Question[0].Name
@@ -111,6 +111,7 @@ func NewServer() (*Server, error) {
   if err != nil {
     return nil, fmt.Errorf("couldn't initialize cache: %s\n", err) 
   }
+  newcache.Init()
   ret.Cache = newcache
   return ret, nil
 }

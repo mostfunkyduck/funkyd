@@ -18,10 +18,11 @@ func ParseZoneFile(zone string) ([]Record, error) {
     if token.Error != nil {
       return nil, fmt.Errorf("token error: %s\n", token.Error)
     }
+    // TODO the stuff we host sholdn't follow the same rules, check out the spec
     record := Record{
       Key: token.RR.Header().Name,
       Entry: token.RR,
-      Ttl: 5,
+      Ttl: time.Duration(token.RR.Header().Ttl) * time.Second,
       CreationTime: time.Now(),
       Qtype: token.RR.Header().Rrtype,
     }
