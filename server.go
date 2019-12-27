@@ -1,9 +1,9 @@
 package main
 
 import (
+  "time"
   "log"
   "fmt"
-  "net"
   "github.com/miekg/dns"
 )
 
@@ -18,7 +18,12 @@ func sendNXDomain (w dns.ResponseWriter, r *dns.Msg) {
 func (server *Server) RecursiveQuery(domain string, rrtype uint16) ([]Record, error) {
   var records []Record
   // lifted from example code https://github.com/miekg/dns/blob/master/example_test.go
-  config, _ := dns.ClientConfigFromFile("/etc/resolv.conf")
+  // TODO cache this?
+  config, err := dns.ClientConfigFromFile("/etc/resolv.conf")
+  if err != nil {
+    return []Record{}, fmt.Errorf("error parsing resolv.conf: %s\n", err)
+  }
+
   c := new(dns.Client)
   m := new(dns.Msg)
   m.SetQuestion(domain, rrtype)
@@ -28,18 +33,19 @@ func (server *Server) RecursiveQuery(domain string, rrtype uint16) ([]Record, er
     return []Record{}, fmt.Errorf("error looking up domain [%s]: %s",domain, err)
   }
 
+  /**
   if r.Rcode != dns.RcodeSuccess {
     return []Record{}, fmt.Errorf("got unsuccessful lookup code [%d]", r.Rcode)
   }
+  **/
   for _, a := range r.Answer {
-    val := a.(*dns.A).A.String()
-    log.Printf("a record: %s\n", val)
     r := Record {
-      Label: domain,
-      Rrtype: rrtype,
-      Ttl: int(a.(*dns.A).Header().Ttl),
-      Value: string(val),
+      Entry: a,
+      Qtype: rrtype,
+      CreationTime: time.Now(),
+      Ttl: (time.Duration(a.Header().Ttl) * time.Second),
     }
+    log.Printf("created %v\n", r)
     records = append(records, r)
   }
   return records, nil
@@ -47,55 +53,55 @@ func (server *Server) RecursiveQuery(domain string, rrtype uint16) ([]Record, er
 
 // retrieves the record for that domain, either from cache or from
 // a recursive query
-func (server *Server) RetrieveRecords(domain string) ([]*Record, error) {
+func (server *Server) RetrieveRecords(domain string, rrtype uint16) ([]*Record, error) {
   var records []*Record
-  // FIXME cache should return ALL records, not just one
-  record, ok := server.ACache.Get(domain)
 
-  if !ok {
-    temp, err := server.RecursiveQuery(domain, dns.TypeA)
-    if err != nil {
-      return records, fmt.Errorf("error running recursive query on domain [%s]: %s\n", domain, err)
-    }
-
-    for _, record := range temp {
-      records = append(records, &record)
-    }
-    return records, nil
-  } else {
-    records = append(records, record)
+  // First: check cache
+  log.Printf("retrieving %s from cache", domain)
+  server.Cache.RLock()
+  cached_records, ok := server.Cache.Get(domain, rrtype)
+  defer server.Cache.RUnlock()
+  if ok {
+    return cached_records, nil
   }
-  return records, nil 
+
+  // Second, query upstream if there's no cache
+  log.Printf("falling back to query")
+  qrec, err := server.RecursiveQuery(domain, rrtype)
+  if err != nil {
+    return records, fmt.Errorf("error running recursive query on domain [%s]: %s\n", domain, err)
+  }
+  for _, record := range qrec {
+    log.Printf("adding %v\n", record)
+    server.Cache.Lock()
+    server.Cache.Add(&record)
+    server.Cache.Unlock()
+    log.Printf("done adding %v\n", record)
+    records = append(records, &record)
+  }
+  return records, nil
 }
 
 func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
   msg := dns.Msg{}
   msg.SetReply(r)
-  switch r.Question[0].Qtype {
-  case dns.TypeA:
-    msg.Authoritative = true
-    domain := msg.Question[0].Name
-    records, err := server.RetrieveRecords(domain)
-    log.Printf("records: [%v]\n", records)
-    if err != nil {
-      log.Printf("error retrieving record for domain [%s]: %s", domain, err)
-      // TODO SERVFAIL here
-      sendNXDomain(w, r)
-      return
-    }
-    for _, record := range records {
-      log.Printf("each: %v\n", record)
-      msg.Answer = append(msg.Answer, &dns.A{
-        Hdr: dns.RR_Header{
-          Name: record.Label,
-          Rrtype: record.Rrtype,
-          Class: dns.ClassINET,
-          Ttl: uint32(record.Ttl),
-        },
-        A: net.ParseIP(record.Value),
-      })
-    }
+  domain := msg.Question[0].Name
+  // FIXME what does this change?
+  msg.Authoritative = true
+
+  records, err := server.RetrieveRecords(domain, r.Question[0].Qtype)
+  log.Printf("records: [%v]\n", records)
+  if err != nil {
+    log.Printf("error retrieving record for domain [%s]: %s", domain, err)
+    // TODO SERVFAIL here
+    sendNXDomain(w, r)
+    return
   }
+  for _, record := range records {
+    log.Printf("each: %v\n", record)
+    msg.Answer = append(msg.Answer, record.Entry.(dns.RR))
+  }
+
   w.WriteMsg(&msg)
 }
 
@@ -105,6 +111,6 @@ func NewServer() (*Server, error) {
   if err != nil {
     return nil, fmt.Errorf("couldn't initialize cache: %s\n", err) 
   }
-  ret.ACache = newcache
+  ret.Cache = newcache
   return ret, nil
 }

@@ -30,11 +30,14 @@ func main() {
       log.Fatalf("could not parse zone file [%s]: %s\n", file, err)
     }
     for _, record := range records {
-      log.Printf("adding [%s]\n", record.Value)
+      log.Printf("adding [%v]\n", record)
       // TODO one function to make the keys, please
-      server.ACache.Add(record.Label, &record)
+      server.Cache.Lock()
+      server.Cache.Add(&record)
+      server.Cache.Unlock()
     }
   }
+
   // set up DNS server
   srv := &dns.Server{Addr: ":" + strconv.Itoa(53), Net: "udp"}
   srv.Handler = server

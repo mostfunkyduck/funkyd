@@ -1,9 +1,9 @@
 package main
 
 import (
+  "time"
   "strings"
   "fmt"
-  "log"
   "github.com/miekg/dns"
 )
 
@@ -18,17 +18,14 @@ func ParseZoneFile(zone string) ([]Record, error) {
     if token.Error != nil {
       return nil, fmt.Errorf("token error: %s\n", token.Error)
     }
-    switch rec := token.RR.(type) {
-    case *dns.A:
-      log.Printf("%v\n", rec)
-      record := Record{
-        Label:   rec.Header().Name,
-        Rrtype:  rec.Header().Rrtype,
-        Ttl:     int(rec.Header().Ttl),
-        Value:   rec.A.String(),
-      }
-      records = append(records, record)
+    record := Record{
+      Key: token.RR.Header().Name,
+      Entry: token.RR,
+      Ttl: 5,
+      CreationTime: time.Now(),
+      Qtype: token.RR.Header().Rrtype,
     }
+    records = append(records, record)
   }
 
   return records, nil

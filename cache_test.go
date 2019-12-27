@@ -1,7 +1,9 @@
 package main
 
 import (
+  "time"
   "testing"
+  "github.com/miekg/dns"
 )
 
 func setupCache(t *testing.T) *RecordCache {
@@ -23,9 +25,42 @@ func TestCache(t *testing.T) {
 func TestStorage(t *testing.T) {
   cache := setupCache(t)
   record := setupRecord(t)
-  cache.Add("key", record)
-  newrecord, _ := cache.Get("key")
-  if record != newrecord {
-    t.Errorf("cache retrieval didn't return record matching what was inserted [%v][%v]\n", record, newrecord)
+  cache.Add(record)
+  arecs, ok := cache.Get(record.Key, record.Qtype)
+
+  if !ok {
+    t.Errorf("cache retrieval failed")
+    return
+  }
+
+  if len(arecs) != 1 {
+    t.Errorf("cache retrieval spat back %d records when only one was put in", len(arecs))
+    return
+  }
+  if arecs[0] != record {
+    t.Errorf("cache retrieval didn't return record matching what was inserted [%v][%v]\n", record, arecs[0])
+  }
+
+  cache.Remove(record)
+  newrecord, ok := cache.Get("key", record.Qtype)
+  if ok {
+    t.Errorf("deletion didn't work: [%v] [%v]\n", cache, newrecord)
+  }
+}
+
+func TestClean(t *testing.T) {
+  cache := setupCache(t)
+  record := setupRecord(t)
+  record.Ttl = 10
+  record.CreationTime = time.Now().Add(-15)
+  cache.Add(record)
+  _, ok := cache.Get(record.Key, record.Qtype)
+  if !ok {
+    t.Errorf("failed to add record: [%v][%v]\n", cache, record)
+  }
+  cache.Clean()
+  newrecord, ok := cache.Get("key", dns.TypeA)
+  if ok {
+    t.Errorf("cleaning didn't work: [%v] [%v]\n", cache, newrecord)
   }
 }
