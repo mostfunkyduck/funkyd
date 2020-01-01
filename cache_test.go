@@ -4,6 +4,7 @@ import (
   "time"
   "testing"
   "github.com/miekg/dns"
+  "github.com/google/go-cmp/cmp"
 )
 
 func setupCache(t *testing.T) *RecordCache {
@@ -14,9 +15,10 @@ func setupCache(t *testing.T) *RecordCache {
   return rc
 }
 
-func setupRecord(t *testing.T) *Record {
-  return &Record{
+func setupResponse(t *testing.T) Response {
+  return Response {
     Key: "key",
+    Entry: &dns.Msg{},
   }
 }
 
@@ -26,26 +28,22 @@ func TestCache(t *testing.T) {
 
 func TestStorage(t *testing.T) {
   cache := setupCache(t)
-  record := setupRecord(t)
-  record.Ttl = 1099 * time.Second
-  record.CreationTime = time.Now()
-  cache.Add(record)
-  arecs, ok := cache.Get(record.Key, record.Qtype)
+  response := setupResponse(t)
+  response.Ttl = 1099 * time.Second
+  response.CreationTime = time.Now()
+  cache.Add(response)
+  cachedResponse, ok := cache.Get(response.Key, response.Qtype)
   if !ok {
     t.Errorf("cache retrieval failed")
     return
   }
 
-  if len(arecs) != 1 {
-    t.Errorf("cache retrieval spat back %d records when only one was put in", len(arecs))
-    return
-  }
-  if arecs[0] != record {
-    t.Errorf("cache retrieval didn't return record matching what was inserted [%v][%v]\n", record, arecs[0])
+  if !cmp.Equal(cachedResponse, response) {
+    t.Errorf("cache retrieval didn't return record matching what was inserted [%v][%v]\n", cachedResponse, response)
   }
 
-  cache.Remove(record)
-  newrecord, ok := cache.Get(record.Key, record.Qtype)
+  cache.Remove(response)
+  newrecord, ok := cache.Get(response.Key, response.Qtype)
   if ok {
     t.Errorf("deletion didn't work: [%v] [%v]\n", cache, newrecord)
   }
@@ -53,13 +51,13 @@ func TestStorage(t *testing.T) {
 
 func TestClean(t *testing.T) {
   cache := setupCache(t)
-  record := setupRecord(t)
-  record.Ttl = 10 * time.Second
-  record.CreationTime = time.Now().Add(-15 * time.Second)
-  cache.Add(record)
-  _, ok := cache.Get(record.Key, record.Qtype)
+  response := setupResponse(t)
+  response.Ttl = 10 * time.Second
+  response.CreationTime = time.Now().Add(-15 * time.Second)
+  cache.Add(response)
+  _, ok := cache.Get(response.Key, response.Qtype)
   if !ok {
-    t.Errorf("failed to add record: [%v][%v]\n", cache, record)
+    t.Errorf("failed to add response: [%v][%v]\n", cache, response)
   }
   cache.Clean()
   newrecord, ok := cache.Get("key", dns.TypeA)

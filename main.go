@@ -25,15 +25,15 @@ func main() {
     if err != nil {
       log.Fatalf("could not read zone file [%s]: %s\n", file, err)
     }
-    records, err := ParseZoneFile(string(file))
+    responses, err := ParseZoneFile(string(file))
     if err != nil {
       log.Fatalf("could not parse zone file [%s]: %s\n", file, err)
     }
-    for _, record := range records {
-      log.Printf("adding [%v]\n", record)
+    for _, response := range responses {
+      log.Printf("adding [%v]\n", response)
       // TODO one function to make the keys, please
       server.HostedCache.Lock()
-      server.HostedCache.Add(&record)
+      server.HostedCache.Add(response)
       server.HostedCache.Unlock()
     }
   }

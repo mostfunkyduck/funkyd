@@ -5,15 +5,20 @@ package main
 // it could be vastly improved, however, i've tried to make the apis flexible so that i can
 // shoehorn in a real system once i proof-of-concept this one
 import (
-  "github.com/google/go-cmp/cmp"
   "time"
-  "fmt"
   "log"
+  "github.com/miekg/dns"
 )
 
-func (rcache *RecordCache) Add(record *Record) {
-  log.Printf("adding [%v] to cache\n", record)
-  _, ok := rcache.Get(record.Key, record.Qtype)
+func (response Response) IsExpired(rr dns.RR) bool {
+  log.Printf("checking if record with ttl [%d] off of creation time [%s]  has expired", rr.Header().Ttl, response.CreationTime)
+  return response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
+}
+
+// can we make it so that this copies the pointers in the response to prevent conflicts
+func (rcache *RecordCache) Add(response Response) {
+  log.Printf("adding [%s] to cache\n", response.Key)
+  _, ok := rcache.Get(response.Key, response.Qtype)
   if ok {
     // we have records for this query type, 
     // when i overhaul this, we should always be able to blow out all records of a specific kind in order to upsert the cache without worrying about stale or duplicate records being left behind
@@ -22,51 +27,42 @@ func (rcache *RecordCache) Add(record *Record) {
     return
   }
   // if it's not already in there, let's just shift it in at the end
-  rcache.cache[record.Key] = append(rcache.cache[record.Key], record)
+  rcache.cache[response.Key] = response
 }
 
-func (rcache *RecordCache) Get(key string, qtype uint16) ([]*Record, bool){
-  var matching_records []*Record = make([]*Record, 0)
+func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool){
+  // return only valid records, no stale cache pls.  this will involve ignoring the dirty records
+  // from the cache,  clean timer will prune them
+  var RRs []dns.RR
   log.Printf("getting [%s] from cache\n", key)
-  cached_records, ok := rcache.cache[key]
+  response, ok := rcache.cache[key]
+  if response.Qtype != qtype {
+    log.Printf("mismatched qtype! [%d] != [%d]", response.Qtype, qtype)
+    return Response{}, false
+  }
   if ok {
-    log.Printf("retrieved [%v] from cache\n", cached_records)
+    log.Printf("retrieved [%v] from cache\n", response)
     // there are records for this domain
-    for _, rec := range cached_records {
+    for _, rec := range response.Entry.Answer {
       log.Printf("evaluating: %v\n", rec)
       // just in case the clean job hasn't fired, filter out nastiness
-      if rec.Qtype == qtype && !rec.IsExpired() {
-        matching_records = append(matching_records, rec)
+      if !response.IsExpired(rec) {
+        RRs = append(RRs, rec)
       } else {
         log.Printf("%v is expired\n", rec)
       }
     }
-    log.Printf("returning [%v]\n", matching_records)
-    return matching_records, true
+    log.Printf("returning [%v]\n", RRs)
+    response.Entry.Answer = RRs
+    return response, true
   }
-  return cached_records, false
+  return response, false
 }
 
-func (rcache *RecordCache) Remove(record *Record) error {
-  log.Printf("removing [%v] from cache\n", record)
-  recs, ok := rcache.cache[record.Key]
-  if !ok {
-    return fmt.Errorf("could not retrieve record from cache: %v\n", record)
-  }
-
-  for i, rec := range recs {
-    log.Printf("evaluating [%v] for removal\n", rec)
-    if cmp.Equal(record, rec) {
-      log.Printf("removing [%v]\n", rec)
-      rcache.cache[record.Key] = append(rcache.cache[record.Key][:i], rcache.cache[record.Key][i+1:]...)
-    }
-    // It's theoretically possible that duplicate records could slip in, so let's prune everything just to be safe
-  }
-
-  // if the cache for this domain is now empty, delete the key
-  if len(rcache.cache[record.Key]) == 0 {
-    delete(rcache.cache, record.Key)
-  }
+// Removes an entire response from the cache
+func (rcache *RecordCache) Remove(response Response) error {
+  log.Printf("removing [%v] from cache\n", response)
+  delete(rcache.cache, response.Key)
   return nil
 }
 
@@ -93,18 +89,22 @@ func (rcache *RecordCache) Unlock() {
 }
 
 func (rcache *RecordCache) Clean() int {
+  var RRs []dns.RR
   var records_deleted = 0
   rcache.Lock()
   defer rcache.Unlock()
-  for key, records := range rcache.cache {
-    log.Printf("key: [%s], records: [%v]\n", key, records)
-    for _, record := range records {
-      log.Printf("%v\n", record)
-      if record.IsExpired() {
-        rcache.Remove(record)
+  for key, response := range rcache.cache {
+    log.Printf("key: [%s], response: [%v]\n", key, response)
+    // TODO expire other rr arrays in response entry as well
+    for _, record := range response.Entry.Answer {
+      log.Printf("evaluating [%v] for expiration\n", response)
+      if response.IsExpired(record) {
         records_deleted++
+      } else {
+        RRs = append(RRs, record)
       }
     }
+    response.Entry.Answer = RRs
   }
   return records_deleted
 }
@@ -124,14 +124,9 @@ func (rcache *RecordCache) Init() {
   return
 }
 
-// Record functions
-func (record *Record) IsExpired() bool {
-  return record.CreationTime.Add(record.Ttl).Before(time.Now())
-}
-
 func NewCache() (*RecordCache, error) {
   ret := &RecordCache{
-    cache: make(map[string][]*Record),
+    cache: make(map[string]Response),
   }
   // ret.Init() keep this outside of the constructor for unit testing
   return ret, nil
