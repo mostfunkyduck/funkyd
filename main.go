@@ -32,9 +32,9 @@ func main() {
     for _, record := range records {
       log.Printf("adding [%v]\n", record)
       // TODO one function to make the keys, please
-      server.Cache.Lock()
-      server.Cache.Add(&record)
-      server.Cache.Unlock()
+      server.HostedCache.Lock()
+      server.HostedCache.Add(&record)
+      server.HostedCache.Unlock()
     }
   }
 

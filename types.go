@@ -1,11 +1,15 @@
 package main
 
 import (
+  "github.com/miekg/dns"
   "sync"
   "time"
 )
 type Server struct{
-  Cache *RecordCache
+  // lookup cache
+  Cache       *RecordCache
+  // cache of records hosted by this server
+  HostedCache *RecordCache
 }
 
 type Lock struct {
@@ -19,6 +23,8 @@ type RecordCache struct {
   lock Lock
 }
 
+
+// Cache entry + metadata for record caches
 type Record struct {
   Key           string
   Entry         interface{}
