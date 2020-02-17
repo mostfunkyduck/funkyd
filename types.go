@@ -28,7 +28,7 @@ type RecordCache struct {
 // DNS response cache wrapper
 type Response struct {
   Key           string
-  Entry         *dns.Msg
+  Entry         dns.Msg
   Ttl           time.Duration
   Qtype         uint16
   CreationTime  time.Time

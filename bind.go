@@ -19,7 +19,7 @@ func ParseZoneFile(zone string) ([]Response, error) {
       return nil, fmt.Errorf("token error: %s\n", token.Error)
     }
     // TODO the stuff we host sholdn't follow the same rules, check out the spec
-   cachedMsg := &dns.Msg {
+   cachedMsg := dns.Msg {
       Answer: []dns.RR{token.RR},
    }
    response := Response {

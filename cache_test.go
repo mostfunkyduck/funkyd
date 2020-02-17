@@ -18,7 +18,7 @@ func setupCache(t *testing.T) *RecordCache {
 func setupResponse(t *testing.T) Response {
   return Response {
     Key: "key",
-    Entry: &dns.Msg{},
+    Entry: dns.Msg{},
   }
 }
 

@@ -16,7 +16,7 @@ func sendNXDomain (w dns.ResponseWriter, r *dns.Msg) {
   w.WriteMsg(m)
 }
 
-func (server *Server) processResults(r *dns.Msg, domain string, rrtype uint16) (Response, error) {
+func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
   if r.Rcode != dns.RcodeSuccess {
     // wish we had an easier way of translating the rrtype into human, but i don't got one yet
     return Response{}, fmt.Errorf("got unsuccessful lookup code for domain [%s] rrtype [%d]: [%d]", domain, rrtype, r.Rcode)
@@ -50,7 +50,7 @@ func (server *Server) RecursiveQuery(domain string, rrtype uint16) (Response, er
       errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, s, port, err, errorstring)
       continue
     }
-    return server.processResults(r, domain, rrtype)
+    return server.processResults(*r, domain, rrtype)
   }
   // if we went through each server and couldn't find at least one result, bail with the full error string
   return Response{}, fmt.Errorf(errorstring)

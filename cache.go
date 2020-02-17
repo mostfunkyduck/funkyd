@@ -36,27 +36,30 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool){
   var RRs []dns.RR
   log.Printf("getting [%s] from cache\n", key)
   response, ok := rcache.cache[key]
+  if !ok {
+    log.Printf("cache miss")
+    return Response{}, false
+  }
+
   if response.Qtype != qtype {
     log.Printf("mismatched qtype! [%d] != [%d]", response.Qtype, qtype)
     return Response{}, false
   }
-  if ok {
-    log.Printf("retrieved [%v] from cache\n", response)
-    // there are records for this domain
-    for _, rec := range response.Entry.Answer {
-      log.Printf("evaluating: %v\n", rec)
-      // just in case the clean job hasn't fired, filter out nastiness
-      if !response.IsExpired(rec) {
-        RRs = append(RRs, rec)
-      } else {
-        log.Printf("%v is expired\n", rec)
-      }
+
+  log.Printf("retrieved [%v] from cache\n", response)
+  // there are records for this domain
+  for _, rec := range response.Entry.Answer {
+    log.Printf("evaluating: %v\n", rec)
+    // just in case the clean job hasn't fired, filter out nastiness
+    if !response.IsExpired(rec) {
+      RRs = append(RRs, rec)
+    } else {
+      log.Printf("%v is expired\n", rec)
     }
-    log.Printf("returning [%v]\n", RRs)
-    response.Entry.Answer = RRs
-    return response, true
   }
-  return response, false
+  log.Printf("returning [%v]\n", RRs)
+  response.Entry.Answer = RRs
+  return response, true
 }
 
 // Removes an entire response from the cache
