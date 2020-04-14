@@ -8,6 +8,7 @@ import (
 
 type Configuration struct {
   ZoneFiles []string `json:"zonefiles"`
+  Port      int      `json:"port"`
 }
 
 func NewConfiguration(configpath string) (Configuration, error) {
