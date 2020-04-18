@@ -31,23 +31,20 @@ func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (R
 
 func (server *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) {
   // lifted from example code https://github.com/miekg/dns/blob/master/example_test.go
-  // TODO cache this? config this too
   port := "853"
-  config, err := dns.ClientConfigFromFile("./resolv.conf") // can be /etc/resolv.conf on a server configured with tcp shit in its config
-  if err != nil {
-    return Response{}, fmt.Errorf("error parsing resolv.conf: %s\n", err)
-  }
+  // TODO error checking
+  config := GetConfiguration()
 
   m := &dns.Msg{}
   m.SetQuestion(domain, rrtype)
   m.RecursionDesired = true
   // TODO cycle through all servers. cache connection
-  // build a huge error string of all errors from all servers
   var errorstring string
-  for _, s := range config.Servers {
+  for _, s := range config.Resolvers {
     r, _, err := server.dnsClient.Exchange(m, s + ":" + port)
     if err != nil {
       errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, s, port, err, errorstring)
+      // build a huge error string of all errors from all servers
       continue
     }
     return server.processResults(*r, domain, rrtype)

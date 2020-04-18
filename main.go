@@ -9,11 +9,12 @@ import (
 
 func main() {
   // read in configuration
-  config, err := NewConfiguration("./test.conf")
+  err := InitConfiguration("./test.conf")
   if err != nil {
     log.Fatalf("could not open configuration: %s\n", err)
   }
 
+  config := GetConfiguration()
   server, err := NewServer()
   if err != nil {
     log.Fatalf("could not initialize new server: %s\n", err)

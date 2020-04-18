@@ -8,16 +8,24 @@ import (
 
 type Configuration struct {
   ZoneFiles []string `json:"zonefiles"`
+  Port      int      `json:"port"`
+  Resolvers []string `json:"resolvers"`
 }
 
-func NewConfiguration(configpath string) (Configuration, error) {
+var configuration = Configuration{}
+
+func InitConfiguration(configpath string) error {
   file, _ := os.Open(configpath)
   defer file.Close()
   decoder := json.NewDecoder(file)
   configuration := Configuration{}
   err := decoder.Decode(&configuration)
   if err != nil {
-    return Configuration{}, fmt.Errorf("error while loading configuration from JSON: %s\n", err)
+    return fmt.Errorf("error while loading configuration from JSON: %s\n", err)
   }
-  return configuration, nil
+  return nil
+}
+
+func GetConfiguration() Configuration {
+  return configuration
 }
