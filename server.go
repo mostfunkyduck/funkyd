@@ -30,6 +30,7 @@ func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (R
 }
 
 func (server *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) {
+	RecursiveQueryCounter.Inc()
 	// lifted from example code https://github.com/miekg/dns/blob/master/example_test.go
 	port := "853"
 	// TODO error checking
@@ -43,6 +44,7 @@ func (server *Server) RecursiveQuery(domain string, rrtype uint16) (Response, er
 	for _, s := range config.Resolvers {
 		r, _, err := server.dnsClient.Exchange(m, s+":"+port)
 		if err != nil {
+			ResolverErrorsCounter.Inc()
 			errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, s, port, err, errorstring)
 			// build a huge error string of all errors from all servers
 			continue
@@ -57,7 +59,6 @@ func (server *Server) RecursiveQuery(domain string, rrtype uint16) (Response, er
 // a recursive query
 func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, error) {
 	// First: check caches
-	log.Printf("retrieving %s from cache [%v]", domain, server)
 
 	// Need to keep caches locked until the end of the function because
 	// we may need to add records consistently
@@ -65,22 +66,21 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, e
 	defer server.Cache.Unlock()
 	cached_response, ok := server.Cache.Get(domain, rrtype)
 	if ok {
-		log.Printf("returning cached response from query cache")
+		CacheHitsCounter.Inc()
 		return cached_response, nil
 	}
 
-	// Now check the hosted cache
+	// Now check the hosted cache (stuff in our zone files that we're taking care of
 	server.HostedCache.RLock()
 	defer server.HostedCache.RUnlock()
 	cached_response, ok = server.HostedCache.Get(domain, rrtype)
 	if ok {
-		log.Printf("returning cached response from hosted cache")
+		HostedCacheHitsCounter.Inc()
 		return cached_response, nil
 	}
 
 	// Second, query upstream if there's no cache
-	log.Printf("falling back to query")
-	// TODO only do if requested
+	// TODO only do if requested b/c thats what the spec says IIRC
 	response, err := server.RecursiveQuery(domain, rrtype)
 	if err != nil {
 		return response, fmt.Errorf("error running recursive query on domain [%s]: %s\n", domain, err)
@@ -90,6 +90,8 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, e
 }
 
 func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	TotalDnsQueriesCounter.Inc()
+
 	msg := dns.Msg{}
 	msg.SetReply(r)
 	domain := msg.Question[0].Name
@@ -98,10 +100,10 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg.RecursionAvailable = true
 
 	response, err := server.RetrieveRecords(domain, r.Question[0].Qtype)
-	log.Printf("response: [%v]\n", response)
 	if err != nil {
+		LocalServfailsCounter.Inc()
 		log.Printf("error retrieving record for domain [%s]: %s", domain, err)
-		// TODO SERVFAIL here
+		// TODO SERVFAIL here (like, seriously bro, do this shit)
 		sendNXDomain(w, r)
 		return
 	}
