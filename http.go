@@ -18,7 +18,7 @@ func config(w http.ResponseWriter, r *http.Request) {
 	str, err := json.Marshal(conf)
 	if err != nil {
 		handleError(w, err, 500)
-    return
+		return
 	}
 	fmt.Fprintf(w, "%s\n", str)
 }
@@ -27,5 +27,9 @@ func InitApi() {
 	conf := GetConfiguration()
 	router := mux.NewRouter().StrictSlash(true)
 	router.HandleFunc("/config", config)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", conf.HttpPort), router))
+	log.Printf("starting HTTP server on ':%d'\n", conf.HttpPort)
+	// don't block the main thread with this jazz
+	go func() {
+		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", conf.HttpPort), router))
+	}()
 }

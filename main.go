@@ -13,7 +13,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not open configuration: %s\n", err)
 	}
-
+	InitApi()
 	config := GetConfiguration()
 	server, err := NewServer()
 	if err != nil {

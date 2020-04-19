@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -17,17 +18,18 @@ type Configuration struct {
 	Resolvers []string `json:"resolvers"`
 
 	// Port to expose admin API on
-	HttpPort int
+	HttpPort int `json:"httpport"`
 }
 
-var configuration = Configuration{}
+var configuration Configuration
 
 func InitConfiguration(configpath string) error {
 	file, _ := os.Open(configpath)
 	defer file.Close()
 	decoder := json.NewDecoder(file)
-	configuration := Configuration{}
+	configuration = Configuration{}
 	err := decoder.Decode(&configuration)
+	log.Printf("%v\n", configuration)
 	if err != nil {
 		return fmt.Errorf("error while loading configuration from JSON: %s\n", err)
 	}
