@@ -9,9 +9,9 @@ import (
 
 func main() {
   //disabling logging to see if that speeds me up significantly
-  log.SetFlags(0)
+  //log.SetFlags(0)
   log.SetOutput(ioutil.Discard)
-  log.Printf("fucking a\n")
+
   // read in configuration
   err := InitConfiguration("./test.conf")
   if err != nil {

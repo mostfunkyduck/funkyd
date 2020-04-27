@@ -43,7 +43,7 @@ func (rcache *RecordCache) Add(response Response) {
   }
   rcache.Lock()
   defer rcache.Unlock()
-  log.Printf("adding [%v] to cache\n", response)
+  log.Printf("adding [%v] to cache. cache length beforehand is [%d]\n", response, len(rcache.cache))
   rcache.cache[formatKey(response.Key, response.Qtype)] = response
   CacheSizeGauge.Set(float64(len(rcache.cache)))
 }
@@ -88,8 +88,8 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 
 // Removes an entire response from the cache
 func (rcache *RecordCache) Remove(response Response) error {
-  log.Printf("removing [%v] from cache\n", response)
-  delete(rcache.cache, response.Key)
+  log.Printf("removing [%v] from cache [%v]\n", response, response.Key)
+  delete(rcache.cache, formatKey(response.Key, response.Qtype))
   CacheSizeGauge.Set(float64(len(rcache.cache)))
   return nil
 }
@@ -122,15 +122,15 @@ func (rcache *RecordCache) Clean() int {
   for key, response := range rcache.cache {
     log.Printf("key: [%s], response: [%v]\n", key, response)
     for _, record := range response.Entry.Answer {
-      log.Printf("evaluating [%v] for expiration\n", response)
+      log.Printf("evaluating [%v] for expiration [%v]\n", response)
+      // record is valid, update it
+      updateTtl(record, response)
       if response.IsExpired(record) {
         // CNAME analysis will have to happen here
         rcache.Remove(response)
         records_deleted++
         break
       }
-      // record is valid, update it
-      updateTtl(record, response)
     }
   }
   return records_deleted
