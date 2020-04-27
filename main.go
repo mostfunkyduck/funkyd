@@ -10,10 +10,10 @@ import (
 func main() {
   //disabling logging to see if that speeds me up significantly
   //log.SetFlags(0)
-  log.SetOutput(ioutil.Discard)
+  //log.SetOutput(ioutil.Discard)
 
   // read in configuration
-  err := InitConfiguration("./test.conf")
+  err := InitConfiguration("/home/pi/code/stubbage/test.conf")
   if err != nil {
     log.Fatalf("could not open configuration: %s\n", err)
   }

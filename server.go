@@ -6,6 +6,7 @@ import (
   "github.com/miekg/dns"
   "log"
   "time"
+  "github.com/prometheus/client_golang/prometheus"
 )
 
 // convenience function to generate an nxdomain response
@@ -17,11 +18,13 @@ func sendNXDomain(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func sendServfail(w dns.ResponseWriter, r *dns.Msg) {
+  LocalServfailsCounter.Inc()
   log.Printf("sending servfail")
   m := &dns.Msg{}
   m.SetRcode(r, dns.RcodeServerFailure)
   w.WriteMsg(m)
 }
+
 func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
   if r.Rcode != dns.RcodeSuccess {
     // wish we had an easier way of translating the rrtype into human, but i don't got one yet
@@ -48,13 +51,18 @@ func (server *Server) RecursiveQuery(domain string, rrtype uint16) (Response, er
   // TODO cycle through all servers. cache connection
   var errorstring string
   for _, s := range config.Resolvers {
+    tlsTimer := prometheus.NewTimer(TLSTimer)
+    log.Printf("attempting connection to [%s]\n", s)
     r, _, err := server.dnsClient.Exchange(m, s+":"+port)
+    log.Printf("connection took [%s]\n", tlsTimer.ObserveDuration())
     if err != nil {
       ResolverErrorsCounter.Inc()
-      errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, s, port, err, errorstring)
       // build a huge error string of all errors from all servers
+      errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, s, port, err, errorstring)
+      // try the next one
       continue
     }
+    // this one worked, proceeding
     return server.processResults(*r, domain, rrtype)
   }
   // if we went through each server and couldn't find at least one result, bail with the full error string
@@ -93,6 +101,7 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, e
 
 func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
   TotalDnsQueriesCounter.Inc()
+  queryTimer := prometheus.NewTimer(QueryTimer)
 
   msg := dns.Msg{}
   msg.SetReply(r)
@@ -102,9 +111,9 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
   msg.RecursionAvailable = true
 
   go func() {
+    defer queryTimer.ObserveDuration()
     response, err := server.RetrieveRecords(domain, r.Question[0].Qtype)
     if err != nil {
-      LocalServfailsCounter.Inc()
       log.Printf("error retrieving record for domain [%s]: %s", domain, err)
       sendServfail(w, r)
       return

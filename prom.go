@@ -9,32 +9,42 @@ import (
 
 var (
   TotalDnsQueriesCounter = promauto.NewCounter(prometheus.CounterOpts{
-    Name: "ttl_dns_queries",
+    Name: "stubbage_dns_queries_total",
     Help: "The total number of handled DNS queries",
   })
   CacheSizeGauge = promauto.NewGauge(prometheus.GaugeOpts{
-    Name: "ttl_cache_entries",
+    Name: "stubbage_cache_entries_total",
     Help: "total size of cache",
   })
   CacheHitsCounter = promauto.NewCounter(prometheus.CounterOpts{
-    Name: "ttl_cache_hits",
+    Name: "stubbage_cache_hits_total",
     Help: "The total number of local cache hits",
   })
   HostedCacheHitsCounter = promauto.NewCounter(prometheus.CounterOpts{
-    Name: "ttl_hosted_cache_hits",
+    Name: "stubbage_hosted_cache_hits_total",
     Help: "The total number of locally hosted hits",
   })
   RecursiveQueryCounter = promauto.NewCounter(prometheus.CounterOpts{
-    Name: "ttl_recursive_queries",
+    Name: "stubbage_recursive_queries_total",
     Help: "The total number of recursive queries run by this server",
   })
   ResolverErrorsCounter = promauto.NewCounter(prometheus.CounterOpts{
-    Name: "ttl_resolver_errors",
+    Name: "stubbage_resolver_errors_total",
     Help: "The total number of times an upstream resolver had errors",
   })
   LocalServfailsCounter = promauto.NewCounter(prometheus.CounterOpts{
-    Name: "ttl_local_servfails",
+    Name: "stubbage_servfails_total",
     Help: "The total number of times the local server had to throw SERVFAIL",
+  })
+  QueryTimer            =   promauto.NewSummary(prometheus.SummaryOpts{
+    Name:    "stubbage_query_time",
+    Help:    "query timer",
+    Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+  })
+  TLSTimer              =   promauto.NewSummary(prometheus.SummaryOpts{
+    Name:    "stubbage_tls_connection_time",
+    Help:    "times the pure connection time of tls",
+    Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
   })
 )
 

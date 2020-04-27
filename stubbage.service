@@ -1,0 +1,9 @@
+[Unit]
+Description=Stubbage DNS proxy
+
+[Service]
+Type=simple
+ExecStart=/home/pi/code/stubbage/stubbage
+
+[Install]
+WantedBy=multi-user.target
