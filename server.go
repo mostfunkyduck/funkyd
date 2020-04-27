@@ -16,6 +16,12 @@ func sendNXDomain(w dns.ResponseWriter, r *dns.Msg) {
   w.WriteMsg(m)
 }
 
+func sendServfail(w dns.ResponseWriter, r *dns.Msg) {
+  log.Printf("sending servfail")
+  m := &dns.Msg{}
+  m.SetRcode(r, dns.RcodeServerFailure)
+  w.WriteMsg(m)
+}
 func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
   if r.Rcode != dns.RcodeSuccess {
     // wish we had an easier way of translating the rrtype into human, but i don't got one yet
@@ -62,8 +68,6 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, e
 
   // Need to keep caches locked until the end of the function because
   // we may need to add records consistently
-  server.Cache.Lock()
-  defer server.Cache.Unlock()
   cached_response, ok := server.Cache.Get(domain, rrtype)
   if ok {
     CacheHitsCounter.Inc()
@@ -71,8 +75,6 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, e
   }
 
   // Now check the hosted cache (stuff in our zone files that we're taking care of
-  server.HostedCache.RLock()
-  defer server.HostedCache.RUnlock()
   cached_response, ok = server.HostedCache.Get(domain, rrtype)
   if ok {
     HostedCacheHitsCounter.Inc()
@@ -99,27 +101,34 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
   msg.Authoritative = false
   msg.RecursionAvailable = true
 
-  response, err := server.RetrieveRecords(domain, r.Question[0].Qtype)
-  if err != nil {
-    LocalServfailsCounter.Inc()
-    log.Printf("error retrieving record for domain [%s]: %s", domain, err)
-    // TODO SERVFAIL here (like, seriously bro, do this shit)
-    sendNXDomain(w, r)
-    return
-  }
+  go func() {
+    response, err := server.RetrieveRecords(domain, r.Question[0].Qtype)
+    if err != nil {
+      LocalServfailsCounter.Inc()
+      log.Printf("error retrieving record for domain [%s]: %s", domain, err)
+      sendServfail(w, r)
+      return
+    }
 
-  msg.Answer = response.Entry.Answer
+      msg.Answer = response.Entry.Answer
 
-  w.WriteMsg(&msg)
+      w.WriteMsg(&msg)
+  }()
 }
 
+func buildClient() (dns.Client, error) {
+  return dns.Client{
+      SingleInflight: true,
+      Net:            "tcp-tls",
+      TLSConfig:      &tls.Config{},
+    }, nil
+}
 func NewServer() (*Server, error) {
-  ret := &Server{
-    dnsClient: dns.Client{
-      Net:       "tcp-tls",
-      TLSConfig: &tls.Config{},
-    },
+  client, err := buildClient()
+  if err != nil {
+    return &Server{}, fmt.Errorf("could not build client [%s]\n", err)
   }
+  ret := &Server{ dnsClient: client }
   newcache, err := NewCache()
   if err != nil {
     return nil, fmt.Errorf("couldn't initialize lookup cache: %s\n", err)

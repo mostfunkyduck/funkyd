@@ -7,15 +7,22 @@ package main
 import (
   "github.com/miekg/dns"
   "log"
+  "fmt"
   "time"
 )
 
+var disableCache = false
 func (response Response) IsExpired(rr dns.RR) bool {
   log.Printf("checking if record with ttl [%d] off of creation time [%s]  has expired", rr.Header().Ttl, response.CreationTime)
   return response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
 }
 
-func (response Response) updateTtl(rr dns.RR) {
+// constructs a cache key from a response
+func formatKey(key string, qtype uint16) string {
+  return fmt.Sprintf("%s:%d", key, qtype)
+}
+// Updates the TTL on the cached record so that the client gets the accurate number
+func updateTtl(rr dns.RR, response Response) {
   // https://stackoverflow.com/questions/26285735/subtracting-time-duration-from-time-in-go oh wtf
   expirationTime := response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second)
   if expirationTime.Before(time.Now()) {
@@ -31,24 +38,26 @@ func (response Response) updateTtl(rr dns.RR) {
 
 // can we make it so that this copies the pointers in the response to prevent conflicts
 func (rcache *RecordCache) Add(response Response) {
-  log.Printf("adding [%s] to cache\n", response.Key)
-  _, ok := rcache.Get(response.Key, response.Qtype)
-  if ok {
-    // we have records for this query type,
-    // when i overhaul this, we should always be able to blow out all records of a specific kind in order to upsert the cache without worrying about stale or duplicate records being left behind
-    // for now... add won't update.
-    // this breaks multiple records for the same domain, only the first will be returned
+  if disableCache {
     return
   }
-  // if it's not already in there, let's just shift it in at the end
-  rcache.cache[response.Key] = response
-  CacheSizeGauge.Inc()
+  rcache.Lock()
+  defer rcache.Unlock()
+  log.Printf("adding [%v] to cache\n", response)
+  rcache.cache[formatKey(response.Key, response.Qtype)] = response
+  CacheSizeGauge.Set(float64(len(rcache.cache)))
 }
 
 func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
+  // this function will clean the cache as of now, so it needs a write lock
+  rcache.RLock()
+  defer rcache.RUnlock()
+  if disableCache {
+    return Response{}, false
+  }
   var RRs []dns.RR
   log.Printf("getting [%s] from cache\n", key)
-  response, ok := rcache.cache[key]
+  response, ok := rcache.cache[formatKey(key, qtype)]
   if !ok {
     log.Printf("cache miss")
     return Response{}, false
@@ -64,10 +73,7 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
   for _, rec := range response.Entry.Answer {
     log.Printf("evaluating: %v\n", rec)
     // just in case the clean job hasn't fired, filter out nastiness
-    if !response.IsExpired(rec) {
-      response.updateTtl(rec)
-      RRs = append(RRs, rec)
-    } else {
+    if response.IsExpired(rec) {
       // https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should
       // treat it as if the lowest TTL is the TTL.  A single expiration means that the smallest record is <= its TTL
 
@@ -77,25 +83,22 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
     }
   }
   log.Printf("returning [%v]\n", RRs)
-  response.Entry.Answer = RRs
   return response, true
 }
 
 // Removes an entire response from the cache
 func (rcache *RecordCache) Remove(response Response) error {
   log.Printf("removing [%v] from cache\n", response)
-  CacheSizeGauge.Dec()
   delete(rcache.cache, response.Key)
+  CacheSizeGauge.Set(float64(len(rcache.cache)))
   return nil
 }
 
 func (rcache *RecordCache) RLock() {
   rcache.lock.RLock()
-  log.Printf("RLocking [%v]\n", rcache)
 }
 
 func (rcache *RecordCache) RUnlock() {
-  log.Printf("RUnlocking [%v]\n", rcache)
   rcache.lock.RUnlock()
 }
 
@@ -103,11 +106,9 @@ func (rcache *RecordCache) RUnlock() {
 // which is a nice, delicious race condition with writes
 func (rcache *RecordCache) Lock() {
   rcache.lock.Lock()
-  log.Printf("Locking [%v]\n", rcache)
 }
 
 func (rcache *RecordCache) Unlock() {
-  log.Printf("Unlocking [%v]\n", rcache)
   rcache.lock.Unlock()
 }
 
@@ -128,6 +129,8 @@ func (rcache *RecordCache) Clean() int {
         records_deleted++
         break
       }
+      // record is valid, update it
+      updateTtl(record, response)
     }
   }
   return records_deleted
