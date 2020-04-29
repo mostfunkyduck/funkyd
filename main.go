@@ -4,14 +4,20 @@ import (
   "github.com/miekg/dns"
   "io/ioutil"
   "log"
+  "fmt"
   "strconv"
 )
 
 func main() {
-  //disabling logging to see if that speeds me up significantly
   //log.SetFlags(0)
   //log.SetOutput(ioutil.Discard)
-
+  logger := InitLogger(DEBUG)
+  logger.Log(NewLogMessage(
+    INFO,
+    fmt.Sprintf("reading configuration from [%s]", "a foolishly hardcoded location"),
+    "",
+    "",
+    "")) 
   // read in configuration
   err := InitConfiguration("/home/pi/code/stubbage/test.conf")
   if err != nil {
