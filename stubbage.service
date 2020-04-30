@@ -3,7 +3,7 @@ Description=Stubbage DNS proxy
 
 [Service]
 Type=simple
-ExecStart=/home/pi/code/stubbage/stubbage
+ExecStart=/home/pi/code/stubbage/stubbage -conf /home/pi/code/stubbage/test.conf
 
 [Install]
 WantedBy=multi-user.target

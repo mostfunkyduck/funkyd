@@ -5,26 +5,53 @@ import (
   "io/ioutil"
   "log"
   "fmt"
+  "flag"
   "strconv"
+  "os"
 )
 
+var (
+  confFile = flag.String("conf", "", "location of the stubbage configuration file")
+)
+
+func validateConfFile() error {
+  file := *confFile
+  if _, err := os.Stat(file); err != nil {
+    return err
+  }
+
+  if file == "" {
+    return fmt.Errorf("no configuration file specified")
+  }
+
+  return nil
+}
+
+func validateFlags() error {
+  if err := validateConfFile(); err != nil {
+    return err
+  }
+  return nil
+}
+
 func main() {
-  //log.SetFlags(0)
-  //log.SetOutput(ioutil.Discard)
-  logger := InitLogger(DEBUG)
-  logger.Log(NewLogMessage(
-    INFO,
-    fmt.Sprintf("reading configuration from [%s]", "a foolishly hardcoded location"),
-    "",
-    "",
-    "")) 
+  flag.Parse()
+  validateFlags()
+  log.Printf("reading configuration from [%s]", *confFile)
   // read in configuration
-  err := InitConfiguration("/home/pi/code/stubbage/test.conf")
+  err := InitConfiguration(*confFile)
   if err != nil {
     log.Fatalf("could not open configuration: %s\n", err)
   }
-  InitApi()
   config := GetConfiguration()
+  InitLogger(LogLevel(config.Level))
+  Logger.Log(NewLogMessage(
+    INFO,
+    fmt.Sprintf("reading configuration from [%s]", *confFile),
+    "",
+    "",
+    ""))
+  InitApi()
   server, err := NewServer()
   if err != nil {
     log.Fatalf("could not initialize new server: %s\n", err)

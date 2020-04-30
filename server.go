@@ -11,7 +11,13 @@ import (
 
 // convenience function to generate an nxdomain response
 func sendNXDomain(w dns.ResponseWriter, r *dns.Msg) {
-  log.Printf("sending nxdomain")
+  Logger.Log(NewLogMessage(
+    DEBUG,
+    "sending NXDOMAIN",
+    "",
+    "",
+    "",
+  ))
   m := &dns.Msg{}
   m.SetRcode(r, dns.RcodeNameError)
   w.WriteMsg(m)
@@ -137,7 +143,7 @@ func NewServer() (*Server, error) {
   if err != nil {
     return &Server{}, fmt.Errorf("could not build client [%s]\n", err)
   }
-  ret := &Server{ dnsClient: client }
+  ret := &Server{ dnsClient: &client }
   newcache, err := NewCache()
   if err != nil {
     return nil, fmt.Errorf("couldn't initialize lookup cache: %s\n", err)

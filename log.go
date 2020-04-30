@@ -5,7 +5,6 @@ import (
   "fmt"
 )
 
-type LogLevel int
 const (
   NOLOG    LogLevel = iota
   CRITICAL
@@ -15,8 +14,8 @@ const (
   DEBUG
 )
 
-type Logger struct {
-  Level LogLevel
+type logger struct {
+  level LogLevel
 }
 
 type logMessage struct {
@@ -35,24 +34,13 @@ type logMessage struct {
   DebugDetails string
 }
 
-// initializes a logger
-func InitLogger(level LogLevel) Logger {
-  l := Logger{
-    Level: level,
-  }
-  l.Log(NewLogMessage(
-    INFO,
-    fmt.Sprintf("initialized new logger at level [%s]", levelToString(level)),
-    "",
-    "",
-    fmt.Sprintf("%v",l),
-  ))
-  return l
+var Logger logger
+func (l logger) SetLevel(level LogLevel) {
+  l.level = level
 }
-
 // takes a structured message, checks log level, outputs it in a set format
-func (l Logger) Log(message logMessage) error {
-  if message.Level <= l.Level {
+func (l logger) Log(message logMessage) error {
+  if message.Level <= l.level {
     output := fmt.Sprintf("[%s] [%s] [%s] [%s]",
                           levelToString(message.Level),
                           message.What,
@@ -88,5 +76,20 @@ func NewLogMessage(level LogLevel, what string, why string, next string, debugDe
     Next: next,
     DebugDetails: debugDetails,
   }
+}
+
+// initializes a logger
+func InitLogger(level LogLevel) {
+  l := logger{
+    level: level,
+  }
+  l.Log(NewLogMessage(
+    INFO,
+    fmt.Sprintf("initialized new logger at level [%s]", levelToString(level)),
+    "",
+    "",
+    fmt.Sprintf("%v",l),
+  ))
+  Logger = l
 }
 

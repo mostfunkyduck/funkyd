@@ -9,7 +9,7 @@ import (
 )
 
 func handleError(w http.ResponseWriter, err error, code int) {
-  log.Printf("error, returning %s: [%s]", code, err)
+  log.Printf("error, returning %d: [%s]", code, err)
   w.WriteHeader(code)
 }
 

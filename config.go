@@ -19,6 +19,9 @@ type Configuration struct {
 
   // Port to expose admin API on
   HttpPort int `json:"httpport"`
+
+  // Overrides log level
+  Level LogLevel  `json:"loglevel"`
 }
 
 var configuration Configuration

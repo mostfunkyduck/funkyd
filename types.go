@@ -5,6 +5,7 @@ import (
   "sync"
   "time"
 )
+type LogLevel int
 
 type Server struct {
   // lookup cache
@@ -12,7 +13,7 @@ type Server struct {
   // cache of records hosted by this server
   HostedCache *RecordCache
   // client for recursive lookups
-  dnsClient dns.Client
+  dnsClient *dns.Client
 }
 
 type Lock struct {

@@ -31,7 +31,7 @@ func updateTtl(rr dns.RR, response Response) {
   }
 
   ttl := expirationTime.Sub(time.Now()).Seconds()
-  log.Printf("setting ttl on [%v] to be [%d] seconds [%d] as a uint32\n", rr, ttl, uint32(ttl))
+  log.Printf("setting ttl on [%v] to be [%f] seconds [%d] as a uint32\n", rr, ttl, uint32(ttl))
   rr.Header().Ttl = uint32(ttl)
 
 }
@@ -122,7 +122,7 @@ func (rcache *RecordCache) Clean() int {
   for key, response := range rcache.cache {
     log.Printf("key: [%s], response: [%v]\n", key, response)
     for _, record := range response.Entry.Answer {
-      log.Printf("evaluating [%v] for expiration [%v]\n", response)
+      log.Printf("evaluating [%v] for expiration\n", response)
       // record is valid, update it
       updateTtl(record, response)
       if response.IsExpired(record) {
