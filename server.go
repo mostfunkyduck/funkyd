@@ -131,19 +131,27 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
   }()
 }
 
-func buildClient() (dns.Client, error) {
-  return dns.Client{
+func buildClient() (*dns.Client, error) {
+  c :=  &dns.Client{
       SingleInflight: true,
       Net:            "tcp-tls",
       TLSConfig:      &tls.Config{},
-    }, nil
+    }
+  Logger.Log(NewLogMessage(
+    INFO,
+    "instantiated new dns client",
+    "",
+    "returning for use",
+    fmt.Sprintf("%v\n", c),
+  ))
+  return c, nil
 }
 func NewServer() (*Server, error) {
   client, err := buildClient()
   if err != nil {
     return &Server{}, fmt.Errorf("could not build client [%s]\n", err)
   }
-  ret := &Server{ dnsClient: &client }
+  ret := &Server{ dnsClient: client }
   newcache, err := NewCache()
   if err != nil {
     return nil, fmt.Errorf("couldn't initialize lookup cache: %s\n", err)

@@ -46,7 +46,7 @@ func (l logger) Log(message logMessage) error {
                           message.What,
                           message.Why,
                           message.Next)
-    if message.Level == DEBUG {
+    if l.level == DEBUG {
       output = fmt.Sprintf("%s [%s]", output, message.DebugDetails)
     }
     // this prevents external code from messing with our logging
