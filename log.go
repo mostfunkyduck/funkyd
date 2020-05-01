@@ -35,7 +35,12 @@ type logMessage struct {
 	DebugDetails string
 }
 
+// 0 value will disable logging
+// the main logger is for diagnostics and debug logging
 var Logger logger
+
+// this logger is for query logging
+var QueryLogger logger
 
 func (l logger) SetLevel(level LogLevel) {
 	l.level = level
@@ -93,10 +98,22 @@ func InitLogger(level LogLevel) {
 	}
 	l.Log(NewLogMessage(
 		INFO,
-		fmt.Sprintf("initialized new logger at level [%s]", levelToString(level)),
+		fmt.Sprintf("initialized new main logger at level [%s]", levelToString(level)),
 		"",
 		"",
 		fmt.Sprintf("%v", l),
 	))
 	Logger = l
+
+	// this guy will ALWAYS log until i implement special options to disable query logging
+	QueryLogger = logger {
+		level: DEBUG,
+	}
+	l.Log(NewLogMessage(
+		INFO,
+		"initialized new query logger",
+		"",
+		"",
+		fmt.Sprintf("%v", QueryLogger),
+	))
 }

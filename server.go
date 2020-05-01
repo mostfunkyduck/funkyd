@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
-	"log"
 	"time"
 )
 
@@ -46,17 +45,17 @@ type ConnPool struct {
 // surprised af
 type ConnEntry struct {
 	Conn	*dns.Conn
+	Address	string
 }
 
 // adds a connection to the cache, returns the entry wrapper
-func (c *ConnPool) Add(conn *dns.Conn, address string) (*ConnEntry, error) {
-	ce := &ConnEntry{Conn: conn}
-	if _, ok := c.cache[address]; ok {
-		c.cache[address] = append(c.cache[address], ce)
+func (c *ConnPool) Add(ce *ConnEntry) error {
+	if _, ok := c.cache[ce.Address]; ok {
+		c.cache[ce.Address] = append(c.cache[ce.Address], ce)
 	} else {
-		c.cache[address] = []*ConnEntry{ce}
+		c.cache[ce.Address] = []*ConnEntry{ce}
 	}
-	return ce, nil
+	return nil
 }
 
 func (c *ConnPool) Get(address string) (*ConnEntry, error) {
@@ -99,14 +98,10 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 		fmt.Sprintf("%v\n", conn),
 	))
 
-	ce, err := s.connPool.Add(conn, address)
-	if err != nil {
-		return ce, err
-	}
-	return ce, nil
+	return connEntry, nil
 }
 
-func (server *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) {
+func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) {
 	RecursiveQueryCounter.Inc()
 	// lifted from example code https://github.com/miekg/dns/blob/master/example_test.go
 	port := "853"
@@ -118,24 +113,54 @@ func (server *Server) RecursiveQuery(domain string, rrtype uint16) (Response, er
 	m.RecursionDesired = true
 	// TODO cycle through all servers. cache connection
 	var errorstring string
-	for _, s := range config.Resolvers {
+	for _, host := range config.Resolvers {
+		address := host + ":" + port
 		tlsTimer := prometheus.NewTimer(TLSTimer)
-		log.Printf("attempting connection to [%s]\n", s)
-		connEntry, err := server.GetConnection(s + ":" + port)
+		Logger.Log(NewLogMessage(
+			INFO,
+			fmt.Sprintf("attempting connection to [%s]\n", address),
+			"",
+			"checking connection pool",
+			fmt.Sprintf("server: [%v], msg [%v]", s, m),
+		))
+		ce, err := s.GetConnection(address)
 		if err != nil {
 			return Response{}, err
 		}
-		r, _, err := server.dnsClient.ExchangeWithConn(m, s+":"+port, connEntry.Conn)
-		log.Printf("connection took [%s]\n", tlsTimer.ObserveDuration())
+		// TODO the new function shouldn't need a host/port
+		r, _, err := s.dnsClient.ExchangeWithConn(m, address, ce.Conn)
+		if err != nil {
+			e := fmt.Errorf("could not execute query msg [%v] against server [%s] using connection [%v]", m, address, ce)
+			return Response{}, e
+		}
+
+		err = s.connPool.Add(ce)
+		if err != nil {
+			Logger.Log(NewLogMessage(
+				ERROR,
+				fmt.Sprintf("could not add connection entry [%v] to pool [%v]!", ce, s.connPool),
+				fmt.Sprintf("%s", err),
+				"continuing without cache, disregarding error",
+				fmt.Sprintf("server: [%v]", s),
+			))
+		}
+
+		Logger.Log(NewLogMessage(
+			INFO,
+			fmt.Sprintf("connection took [%s]\n", tlsTimer.ObserveDuration()),
+			"",
+			"",
+			"",
+	  ))
 		if err != nil {
 			ResolverErrorsCounter.Inc()
 			// build a huge error string of all errors from all servers
-			errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, s, port, err, errorstring)
+			errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, address, port, err, errorstring)
 			// try the next one
 			continue
 		}
 		// this one worked, proceeding
-		return server.processResults(*r, domain, rrtype)
+		return s.processResults(*r, domain, rrtype)
 	}
 	// if we went through each server and couldn't find at least one result, bail with the full error string
 	return Response{}, fmt.Errorf(errorstring)
