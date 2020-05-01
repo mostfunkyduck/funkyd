@@ -17,7 +17,7 @@ type Server struct {
 	dnsClient *dns.Client
 
 	// connection cache, b/c whynot
-	connCache ConnCache
+	connPool	ConnPool
 }
 
 type Lock struct {

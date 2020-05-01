@@ -11,13 +11,7 @@ import (
 
 // convenience function to generate an nxdomain response
 func sendNXDomain(w dns.ResponseWriter, r *dns.Msg) {
-	Logger.Log(NewLogMessage(
-		DEBUG,
-		"sending NXDOMAIN",
-		"",
-		"",
-		fmt.Sprintf("%v\n", r),
-	))
+	NXDomainCounter.Inc()
 	m := &dns.Msg{}
 	m.SetRcode(r, dns.RcodeNameError)
 	w.WriteMsg(m)
@@ -25,7 +19,6 @@ func sendNXDomain(w dns.ResponseWriter, r *dns.Msg) {
 
 func sendServfail(w dns.ResponseWriter, r *dns.Msg) {
 	LocalServfailsCounter.Inc()
-	log.Printf("sending servfail")
 	m := &dns.Msg{}
 	m.SetRcode(r, dns.RcodeServerFailure)
 	w.WriteMsg(m)
@@ -44,7 +37,8 @@ func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (R
 	}, nil
 }
 
-type ConnCache struct {
+// TODO link that project which sorta inspired this
+type ConnPool struct {
 	cache map[string][]*ConnEntry
 }
 
@@ -55,7 +49,7 @@ type ConnEntry struct {
 }
 
 // adds a connection to the cache, returns the entry wrapper
-func (c *ConnCache) Add(conn *dns.Conn, address string) (*ConnEntry, error) {
+func (c *ConnPool) Add(conn *dns.Conn, address string) (*ConnEntry, error) {
 	ce := &ConnEntry{Conn: conn}
 	if _, ok := c.cache[address]; ok {
 		c.cache[address] = append(c.cache[address], ce)
@@ -64,7 +58,8 @@ func (c *ConnCache) Add(conn *dns.Conn, address string) (*ConnEntry, error) {
 	}
 	return ce, nil
 }
-func (c *ConnCache) Get(address string) (*ConnEntry, error) {
+
+func (c *ConnPool) Get(address string) (*ConnEntry, error) {
 	var ret *ConnEntry
 	// Check for an existing connection
 	if conns, ok := c.cache[address]; ok {
@@ -78,7 +73,7 @@ func (c *ConnCache) Get(address string) (*ConnEntry, error) {
 }
 
 func (s *Server) GetConnection(address string) (*ConnEntry, error) {
-	connEntry, err := s.connCache.Get(address)
+	connEntry, err := s.connPool.Get(address)
 	if err == nil {
 		return connEntry, nil
 	}
@@ -104,7 +99,7 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 		fmt.Sprintf("%v\n", conn),
 	))
 
-	ce, err := s.connCache.Add(conn, address)
+	ce, err := s.connPool.Add(conn, address)
 	if err != nil {
 		return ce, err
 	}
@@ -183,7 +178,7 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg := dns.Msg{}
 	msg.SetReply(r)
 	domain := msg.Question[0].Name
-	// FIXME when should this be set to what
+	// FIXME when should this be set
 	msg.Authoritative = false
 	msg.RecursionAvailable = true
 
@@ -191,7 +186,13 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		defer queryTimer.ObserveDuration()
 		response, err := server.RetrieveRecords(domain, r.Question[0].Qtype)
 		if err != nil {
-			log.Printf("error retrieving record for domain [%s]: %s", domain, err)
+			Logger.Log(NewLogMessage(
+				WARNING,
+				fmt.Sprintf("error retrieving record for domain [%s]", domain),
+				fmt.Sprintf("%s", err),
+				"returning SERVFAIL",
+				fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response),
+			))
 			sendServfail(w, r)
 			return
 		}
@@ -210,7 +211,7 @@ func buildClient() (*dns.Client, error) {
 	}
 	Logger.Log(NewLogMessage(
 		INFO,
-		"instantiated new dns client",
+		"instantiated new dns client in TLS mode",
 		"",
 		"returning for use",
 		fmt.Sprintf("%v\n", cl),
@@ -223,7 +224,7 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return &Server{}, fmt.Errorf("could not build client [%s]\n", err)
 	}
-	ret := &Server{dnsClient: client, connCache: ConnCache{cache: make(map[string][]*ConnEntry)}}
+	ret := &Server{dnsClient: client, connPool: ConnPool{cache: make(map[string][]*ConnEntry)}}
 	newcache, err := NewCache()
 	if err != nil {
 		return nil, fmt.Errorf("couldn't initialize lookup cache: %s\n", err)

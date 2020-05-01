@@ -36,6 +36,10 @@ var (
 		Name: "stubbage_servfails_total",
 		Help: "The total number of times the local server had to throw SERVFAIL",
 	})
+	NXDomainCounter = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "stubbage_nxdomains_total",
+		Help: "total nxdomains",
+	})
 	QueryTimer = promauto.NewSummary(prometheus.SummaryOpts{
 		Name:       "stubbage_query_time",
 		Help:       "query timer",
