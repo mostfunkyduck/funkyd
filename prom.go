@@ -50,6 +50,14 @@ var (
 		Help:       "times the pure connection time of tls",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	})
+	NewConnectionAttemptsCounter = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "stubbage_new_connection_attempts_total",
+		Help: "amount of total new connections attempted",
+	})
+	ReusedConnectionsCounter = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "stubbage_reused_connections_total",
+		Help: "times that a connection from the server connection pool was reused",
+	})
 )
 
 func InitPrometheus(router *mux.Router) {

@@ -39,17 +39,28 @@ func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (R
 // TODO link that project which sorta inspired this
 type ConnPool struct {
 	cache map[string][]*ConnEntry
+	lock  Lock
 }
 
-// idk what it is yet, but if i don't have to store metadata here, i'll be 
+// idk what it is yet, but if i don't have to store metadata here, i'll be
 // surprised af
 type ConnEntry struct {
-	Conn	*dns.Conn
-	Address	string
+	Conn    *dns.Conn
+	Address string
+}
+
+func (c *ConnPool) Lock() {
+	c.lock.Lock()
+}
+
+func (c *ConnPool) Unlock() {
+	c.lock.Unlock()
 }
 
 // adds a connection to the cache, returns the entry wrapper
 func (c *ConnPool) Add(ce *ConnEntry) error {
+	c.Lock()
+	defer c.Unlock()
 	if _, ok := c.cache[ce.Address]; ok {
 		c.cache[ce.Address] = append(c.cache[ce.Address], ce)
 	} else {
@@ -59,6 +70,8 @@ func (c *ConnPool) Add(ce *ConnEntry) error {
 }
 
 func (c *ConnPool) Get(address string) (*ConnEntry, error) {
+	c.Lock()
+	defer c.Unlock()
 	var ret *ConnEntry
 	// Check for an existing connection
 	if conns, ok := c.cache[address]; ok {
@@ -74,22 +87,25 @@ func (c *ConnPool) Get(address string) (*ConnEntry, error) {
 func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 	connEntry, err := s.connPool.Get(address)
 	if err == nil {
+		ReusedConnectionsCounter.Inc()
 		return connEntry, nil
 	}
 
 	Logger.Log(NewLogMessage(
-		DEBUG,
+		INFO,
 		fmt.Sprintf("creating new connection to %s", address),
-		"no existing connection found",
+		fmt.Sprintf("error [%s]", err),
 		"dialing",
 		"",
 	))
 
+	tlsTimer := prometheus.NewTimer(TLSTimer)
+	NewConnectionAttemptsCounter.Inc()
 	conn, err := s.dnsClient.Dial(address)
+	Logger.Log(NewLogMessage(DEBUG, fmt.Sprintf("connection took [%s]\n", tlsTimer.ObserveDuration()), "", "", ""))
 	if err != nil {
 		return &ConnEntry{}, err
 	}
-
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		fmt.Sprintf("connection to %s successful", address),
@@ -115,7 +131,6 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 	var errorstring string
 	for _, host := range config.Resolvers {
 		address := host + ":" + port
-		tlsTimer := prometheus.NewTimer(TLSTimer)
 		Logger.Log(NewLogMessage(
 			INFO,
 			fmt.Sprintf("attempting connection to [%s]\n", address),
@@ -145,13 +160,6 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 			))
 		}
 
-		Logger.Log(NewLogMessage(
-			INFO,
-			fmt.Sprintf("connection took [%s]\n", tlsTimer.ObserveDuration()),
-			"",
-			"",
-			"",
-	  ))
 		if err != nil {
 			ResolverErrorsCounter.Inc()
 			// build a huge error string of all errors from all servers

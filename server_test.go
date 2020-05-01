@@ -1,12 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"github.com/google/go-cmp/cmp"
 	"testing"
-	"fmt"
 )
 
-func buildPool() (*ConnPool){
+func buildPool() *ConnPool {
 	// MAYBE make this a central function
 	return &ConnPool{cache: make(map[string][]*ConnEntry)}
 }

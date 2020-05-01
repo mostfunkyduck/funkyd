@@ -106,7 +106,7 @@ func InitLogger(level LogLevel) {
 	Logger = l
 
 	// this guy will ALWAYS log until i implement special options to disable query logging
-	QueryLogger = logger {
+	QueryLogger = logger{
 		level: DEBUG,
 	}
 	l.Log(NewLogMessage(

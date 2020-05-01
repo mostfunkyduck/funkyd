@@ -26,7 +26,7 @@ func (response Response) IsExpired(rr dns.RR) bool {
 	return response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
 }
 
-// TODO we could simplify all the expiration logic to have the response iterate through all its records in 
+// TODO we could simplify all the expiration logic to have the response iterate through all its records in
 // TODO IsExpired and GetExpirationTime instead of the nested for loop happening to check each record currently
 // TODO that still needs to be fixed so that expiration is more sensitive and granular
 func (r Response) GetExpirationTimeFromRR(rr dns.RR) time.Time {
@@ -61,6 +61,7 @@ func (r Response) updateTtl(rr dns.RR) {
 func (r *RecordCache) Size() int {
 	return len(r.cache)
 }
+
 // can we make it so that this copies the pointers in the response to prevent conflicts
 func (rcache *RecordCache) Add(response Response) {
 	rcache.Lock()
@@ -206,9 +207,9 @@ func (rcache *RecordCache) Init() {
 	ticker := time.NewTicker(1 * time.Second)
 	go func() {
 		for range ticker.C {
-			Logger.Log(NewLogMessage( DEBUG, "starting clean operation", "clean ticker ticked", "", ""))
+			Logger.Log(NewLogMessage(DEBUG, "starting clean operation", "clean ticker ticked", "", ""))
 			recs_deleted := rcache.Clean()
-			Logger.Log(NewLogMessage( DEBUG, fmt.Sprintf("deleted [%d] records", recs_deleted), "clean operation finished", "", ""))
+			Logger.Log(NewLogMessage(DEBUG, fmt.Sprintf("deleted [%d] records", recs_deleted), "clean operation finished", "", ""))
 		}
 	}()
 	return
