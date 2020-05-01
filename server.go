@@ -114,7 +114,7 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 		fmt.Sprintf("%v\n", conn),
 	))
 
-	return connEntry, nil
+	return &ConnEntry{Conn: conn, Address: address}, nil
 }
 
 func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) {
@@ -153,7 +153,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 		if err != nil {
 			Logger.Log(NewLogMessage(
 				ERROR,
-				fmt.Sprintf("could not add connection entry [%v] to pool [%v]!", ce, s.connPool),
+				fmt.Sprintf("could not add connection entry [%v] to pool!", ce),
 				fmt.Sprintf("%s", err),
 				"continuing without cache, disregarding error",
 				fmt.Sprintf("server: [%v]", s),

@@ -163,7 +163,7 @@ func (rcache *RecordCache) Clean() int {
 	defer rcache.Unlock()
 
 	Logger.Log(NewLogMessage(
-		INFO,
+		DEBUG,
 		"starting clean job, cache locked",
 		"cleaning record cache",
 		"iterating through cache",
