@@ -36,11 +36,11 @@ func (c *ConnPool) Unlock() {
 func (c *ConnPool) Add(ce *ConnEntry) (bool, error) {
 	c.Lock()
 	defer c.Unlock()
+	// this way, the 0 value will essentially disable building the connection pool
+	if len(c.cache[ce.Address]) >= c.MaxConnsPerHost {
+		return false, nil
+	}
 	if _, ok := c.cache[ce.Address]; ok {
-		// this way, the 0 value will essentially disable building the connection pool
-		if len(c.cache[ce.Address]) >= c.MaxConnsPerHost {
-			return false, nil
-		}
 		c.cache[ce.Address] = append(c.cache[ce.Address], ce)
 	} else {
 		c.cache[ce.Address] = []*ConnEntry{ce}
@@ -63,4 +63,17 @@ func (c *ConnPool) Get(address string) (*ConnEntry, error) {
 		}
 	}
 	return &ConnEntry{}, fmt.Errorf("could not retrieve connection for [%s] from cache", address)
+}
+
+// since this reads all the maps, it needs to make sure there are no concurrent writes
+// caveat emptor
+func (c *ConnPool) Size() int {
+	c.Lock()
+	defer c.Unlock()
+
+	size := 0
+	for _, v := range c.cache {
+		size = size + len(v)
+	}
+	return size
 }
