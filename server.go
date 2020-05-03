@@ -136,7 +136,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 			fmt.Sprintf("attempting connection to [%s]\n", address),
 			"",
 			"checking connection pool",
-			fmt.Sprintf("server: [%v], msg [%v]", s, m),
+			"",
 		))
 		ce, err := s.GetConnection(address)
 		if err != nil {
