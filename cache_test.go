@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/google/go-cmp/cmp"
-	"github.com/miekg/dns"
+	"github.com/mostfunkyduck/dns"
 	"testing"
 	"time"
 )

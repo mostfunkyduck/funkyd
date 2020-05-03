@@ -6,7 +6,7 @@ package main
 // shoehorn in a real system once i proof-of-concept this one
 import (
 	"fmt"
-	"github.com/miekg/dns"
+	"github.com/mostfunkyduck/dns"
 	"time"
 )
 

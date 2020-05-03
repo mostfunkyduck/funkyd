@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/miekg/dns"
+	"github.com/mostfunkyduck/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"time"
 )
@@ -119,7 +119,7 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 
 func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) {
 	RecursiveQueryCounter.Inc()
-	// lifted from example code https://github.com/miekg/dns/blob/master/example_test.go
+	// lifted from example code https://github.com/mostfunkyduck/dns/blob/master/example_test.go
 	port := "853"
 	// TODO error checking
 	config := GetConfiguration()
@@ -142,8 +142,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 		if err != nil {
 			return Response{}, err
 		}
-		// TODO the new function shouldn't need a host/port
-		r, _, err := s.dnsClient.ExchangeWithConn(m, address, ce.Conn)
+		r, _, err := s.dnsClient.ExchangeWithConn(m, ce.Conn)
 		if err != nil {
 			e := fmt.Errorf("could not execute query msg [%v] against server [%s] using connection [%v]", m, address, ce)
 			return Response{}, e

@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/miekg/dns"
+	"github.com/mostfunkyduck/dns"
 	"io/ioutil"
 	"log"
 	"os"
