@@ -24,10 +24,6 @@ func sendServfail(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
-	if r.Rcode != dns.RcodeSuccess {
-		// wish we had an easier way of translating the rrtype into human, but i don't got one yet
-		return Response{}, fmt.Errorf("got unsuccessful lookup code for domain [%s] rrtype [%d]: [%d]", domain, rrtype, r.Rcode)
-	}
 	return Response{
 		Entry:        r,
 		CreationTime: time.Now(),
@@ -191,10 +187,10 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			sendServfail(w, r)
 			return
 		}
-
-		msg.Answer = response.Entry.Answer
-
-		w.WriteMsg(&msg)
+		reply := response.Entry.Copy()
+		// this calls reply.SetReply() as well, correctly configuring all the metadata
+		reply.SetRcode(r, response.Entry.Rcode)
+		w.WriteMsg(reply)
 	}()
 }
 

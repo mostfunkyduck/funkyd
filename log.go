@@ -3,12 +3,13 @@ package main
 // logging wrapper implementing https://www.usenix.org/system/files/login/articles/login_summer19_07_legaza.pdf
 import (
 	"fmt"
-	"log"
+	"io"
+	"os"
 )
 
 const (
-	NOLOG LogLevel = iota
-	CRITICAL
+	NOLOG    LogLevel = iota
+	CRITICAL          // the paper discourages using this, i'm leaving it in to meet expectations and to allow unconditional logging
 	ERROR
 	WARNING
 	INFO
@@ -16,7 +17,8 @@ const (
 )
 
 type logger struct {
-	level LogLevel
+	level  LogLevel
+	handle io.Writer
 }
 
 type logMessage struct {
@@ -56,13 +58,16 @@ func (l logger) Log(message logMessage) error {
 			message.Next)
 		if l.level == DEBUG {
 			output = fmt.Sprintf("%s [%s]", output, message.DebugDetails)
+		} else {
+			output = fmt.Sprintf("%s []", output)
 		}
-		// this prevents external code from messing with our logging
-		// also outputs file location
-		log.SetFlags(log.Lshortfile | log.LstdFlags)
-		log.Println(output)
+		l.output(output)
 	}
 	return nil
+}
+
+func (l *logger) output(output string) {
+	fmt.Fprintf(l.handle, "%s\n", output)
 }
 
 func levelToString(level LogLevel) string {
@@ -94,8 +99,10 @@ func NewLogMessage(level LogLevel, what string, why string, next string, debugDe
 // initializes a logger
 func InitLoggers(level LogLevel) {
 	l := logger{
-		level: level,
+		level:  level,
+		handle: os.Stderr,
 	}
+
 	l.Log(NewLogMessage(
 		INFO,
 		fmt.Sprintf("initialized new main logger at level [%s]", levelToString(level)),
