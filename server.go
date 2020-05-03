@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-func sendServfail(w dns.ResponseWriter, r *dns.Msg) {
+func sendServfail(w dns.ResponseWriter, duration time.Duration, r *dns.Msg) {
 	LocalServfailsCounter.Inc()
 	m := &dns.Msg{}
 	m.SetRcode(r, dns.RcodeServerFailure)
 	w.WriteMsg(m)
-	logQuery("servfail", m)
+	logQuery("servfail", duration, m)
 }
 
 func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
@@ -72,8 +72,6 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 	m := &dns.Msg{}
 	m.SetQuestion(domain, rrtype)
 	m.RecursionDesired = true
-	// TODO cycle through all servers. cache connection
-	var errorstring string
 	for _, host := range config.Resolvers {
 		address := host + ":" + port
 		Logger.Log(NewLogMessage(
@@ -91,8 +89,13 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 
 		if err != nil {
 			ResolverErrorsCounter.WithLabelValues(ce.Address).Inc()
-			// build a huge error string of all errors from all servers
-			errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, address, port, err, errorstring)
+			Logger.Log(NewLogMessage(
+				ERROR,
+				fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s", domain, address, port, err),
+				"",
+				"continuing to next resolver",
+				"",
+			))
 			// try the next one
 			continue
 		}
@@ -124,7 +127,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 		return reply, ce.Address, err
 	}
 	// if we went through each server and couldn't find at least one result, bail with the full error string
-	return Response{}, "", fmt.Errorf(errorstring)
+	return Response{}, "", fmt.Errorf("could not connect to any resolvers")
 }
 
 // retrieves the record for that domain, either from cache or from
@@ -156,13 +159,21 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, s
 	server.Cache.Add(response)
 	return response, source, nil
 }
-func logQuery(source string, response *dns.Msg) error {
+func logQuery(source string, duration time.Duration, response *dns.Msg) error {
 	// queried domain, query type, opcode,	response, authoritative NS
 	var logline string
 	for i, _ := range response.Question {
 		for j, _ := range response.Answer {
 			answerBits := strings.Split(response.Answer[j].String(), " ")
-			logline = fmt.Sprintf("%s	%s	%s	%s	%s", response.Question[i].Name, dns.Type(response.Question[i].Qtype).String(), dns.OpcodeToString[response.Opcode], answerBits[len(answerBits)-1], fmt.Sprintf("[%s]", source))
+			logline = fmt.Sprintf(
+				"%s	%s	%s	%s	%s %s",
+				response.Question[i].Name,
+				dns.Type(response.Question[i].Qtype).String(),
+				dns.OpcodeToString[response.Opcode],
+				answerBits[len(answerBits)-1],
+				fmt.Sprintf("[%s]", source),
+				fmt.Sprintf("%s", duration),
+			)
 			QueryLogger.LogTrimmed(NewLogMessage(
 				CRITICAL,
 				logline,
@@ -187,8 +198,8 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg.RecursionAvailable = true
 
 	go func() {
-		defer queryTimer.ObserveDuration()
 		response, source, err := s.RetrieveRecords(domain, r.Question[0].Qtype)
+		duration := queryTimer.ObserveDuration()
 		if err != nil {
 			Logger.Log(NewLogMessage(
 				ERROR,
@@ -197,14 +208,15 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 				"returning SERVFAIL",
 				fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response),
 			))
-			sendServfail(w, r)
+			sendServfail(w, duration, r)
 			return
 		}
+
 		reply := response.Entry.Copy()
 		// this calls reply.SetReply() as well, correctly configuring all the metadata
 		reply.SetRcode(r, response.Entry.Rcode)
 		w.WriteMsg(reply)
-		logQuery(source, reply)
+		logQuery(source, duration, reply)
 	}()
 }
 
