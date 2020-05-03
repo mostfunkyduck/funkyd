@@ -36,54 +36,6 @@ func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (R
 	}, nil
 }
 
-// TODO link that project which sorta inspired this
-type ConnPool struct {
-	cache map[string][]*ConnEntry
-	lock  Lock
-}
-
-// idk what it is yet, but if i don't have to store metadata here, i'll be
-// surprised af
-type ConnEntry struct {
-	Conn    *dns.Conn
-	Address string
-}
-
-func (c *ConnPool) Lock() {
-	c.lock.Lock()
-}
-
-func (c *ConnPool) Unlock() {
-	c.lock.Unlock()
-}
-
-// adds a connection to the cache, returns the entry wrapper
-func (c *ConnPool) Add(ce *ConnEntry) error {
-	c.Lock()
-	defer c.Unlock()
-	if _, ok := c.cache[ce.Address]; ok {
-		c.cache[ce.Address] = append(c.cache[ce.Address], ce)
-	} else {
-		c.cache[ce.Address] = []*ConnEntry{ce}
-	}
-	return nil
-}
-
-func (c *ConnPool) Get(address string) (*ConnEntry, error) {
-	c.Lock()
-	defer c.Unlock()
-	var ret *ConnEntry
-	// Check for an existing connection
-	if conns, ok := c.cache[address]; ok {
-		if len(conns) > 0 {
-			// pop off a connection and return it
-			ret, c.cache[address] = conns[0], conns[1:]
-			return ret, nil
-		}
-	}
-	return &ConnEntry{}, fmt.Errorf("could not retrieve connection for [%s] from cache", address)
-}
-
 func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 	connEntry, err := s.connPool.Get(address)
 	if err == nil {
@@ -99,7 +51,10 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 		"",
 	))
 
-	tlsTimer := prometheus.NewTimer(TLSTimer)
+	tlsTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
+		TLSTimer.WithLabelValues(address).Observe(v)
+	}),
+	)
 	NewConnectionAttemptsCounter.Inc()
 	conn, err := s.dnsClient.Dial(address)
 	Logger.Log(NewLogMessage(DEBUG, fmt.Sprintf("connection took [%s]\n", tlsTimer.ObserveDuration()), "", "", ""))
@@ -143,12 +98,16 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 			return Response{}, err
 		}
 		r, _, err := s.dnsClient.ExchangeWithConn(m, ce.Conn)
+
 		if err != nil {
-			e := fmt.Errorf("could not execute query msg [%v] against server [%s] using connection [%v]", m, address, ce)
-			return Response{}, e
+			ResolverErrorsCounter.Inc()
+			// build a huge error string of all errors from all servers
+			errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, address, port, err, errorstring)
+			// try the next one
+			continue
 		}
 
-		err = s.connPool.Add(ce)
+		added, err := s.connPool.Add(ce)
 		if err != nil {
 			Logger.Log(NewLogMessage(
 				ERROR,
@@ -159,13 +118,17 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 			))
 		}
 
-		if err != nil {
-			ResolverErrorsCounter.Inc()
-			// build a huge error string of all errors from all servers
-			errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, address, port, err, errorstring)
-			// try the next one
-			continue
+		if !added {
+			Logger.Log(NewLogMessage(
+				INFO,
+				fmt.Sprintf("not adding connection to [%s] to pool", ce.Address),
+				"connection pool was full",
+				"closing connection",
+				fmt.Sprintf("connEntry: [%v]", ce),
+			))
+			ce.Conn.Close()
 		}
+
 		// this one worked, proceeding
 		return s.processResults(*r, domain, rrtype)
 	}
@@ -219,7 +182,7 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		response, err := server.RetrieveRecords(domain, r.Question[0].Qtype)
 		if err != nil {
 			Logger.Log(NewLogMessage(
-				WARNING,
+				ERROR,
 				fmt.Sprintf("error retrieving record for domain [%s]", domain),
 				fmt.Sprintf("%s", err),
 				"returning SERVFAIL",
@@ -256,7 +219,10 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return &Server{}, fmt.Errorf("could not build client [%s]\n", err)
 	}
-	ret := &Server{dnsClient: client, connPool: ConnPool{cache: make(map[string][]*ConnEntry)}}
+	ret := &Server{
+		dnsClient: client,
+		connPool:  InitConnPool(),
+	}
 	newcache, err := NewCache()
 	if err != nil {
 		return nil, fmt.Errorf("couldn't initialize lookup cache: %s\n", err)

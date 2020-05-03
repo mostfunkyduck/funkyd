@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 )
 
@@ -22,6 +21,9 @@ type Configuration struct {
 
 	// Overrides log level
 	Level LogLevel `json:"loglevel"`
+
+	// Sets the maximum connections to keep in the connection pool per upstream resolver
+	MaxConnsPerHost int `json:"maxconnsperhost"`
 }
 
 var configuration Configuration
@@ -32,10 +34,12 @@ func InitConfiguration(configpath string) error {
 	decoder := json.NewDecoder(file)
 	configuration = Configuration{}
 	err := decoder.Decode(&configuration)
-	log.Printf("%v\n", configuration)
+
 	if err != nil {
 		return fmt.Errorf("error while loading configuration from JSON: %s\n", err)
 	}
+
+	fmt.Printf("running configuration: %v\n", configuration)
 	return nil
 }
 

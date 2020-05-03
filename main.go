@@ -44,7 +44,7 @@ func main() {
 		log.Fatalf("could not open configuration: %s\n", err)
 	}
 	config := GetConfiguration()
-	InitLogger(LogLevel(config.Level))
+	InitLoggers(LogLevel(config.Level))
 	Logger.Log(NewLogMessage(
 		INFO,
 		fmt.Sprintf("reading configuration from [%s]", *confFile),

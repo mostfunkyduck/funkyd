@@ -15,9 +15,13 @@ func TestConnectionPoolSingleEntry(t *testing.T) {
 	pool := buildPool()
 	address := "example.com"
 	ce := &ConnEntry{Address: address}
-	err := pool.Add(ce)
+	added, err := pool.Add(ce)
 	if err != nil {
 		t.Errorf("failed to add connection entry [%v] to pool [%v] - [%s]\n", ce, pool, err)
+	}
+
+	if !added {
+		t.Errorf("connection pool [%v] rejected addition of connection [%v]", pool, ce)
 	}
 
 	ce1, err := pool.Get(address)
@@ -40,9 +44,13 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 		ce := &ConnEntry{
 			Address: f(i),
 		}
-		err := pool.Add(ce)
+		added, err := pool.Add(ce)
 		if err != nil {
 			t.Errorf("error inserting entry %v", ce)
+		}
+
+		if !added {
+			t.Errorf("connection pool [%v] rejected addition of connection [%v]", pool, ce)
 		}
 	}
 

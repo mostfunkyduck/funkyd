@@ -92,7 +92,7 @@ func NewLogMessage(level LogLevel, what string, why string, next string, debugDe
 }
 
 // initializes a logger
-func InitLogger(level LogLevel) {
+func InitLoggers(level LogLevel) {
 	l := logger{
 		level: level,
 	}
