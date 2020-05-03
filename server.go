@@ -39,7 +39,7 @@ func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (R
 func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 	connEntry, err := s.connPool.Get(address)
 	if err == nil {
-		ReusedConnectionsCounter.Inc()
+		ReusedConnectionsCounter.WithLabelValues(address).Inc()
 		return connEntry, nil
 	}
 
@@ -55,7 +55,7 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 		TLSTimer.WithLabelValues(address).Observe(v)
 	}),
 	)
-	NewConnectionAttemptsCounter.Inc()
+	NewConnectionAttemptsCounter.WithLabelValues(address).Inc()
 	conn, err := s.dnsClient.Dial(address)
 	Logger.Log(NewLogMessage(DEBUG, fmt.Sprintf("connection took [%s]\n", tlsTimer.ObserveDuration()), "", "", ""))
 	if err != nil {
@@ -100,7 +100,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 		r, _, err := s.dnsClient.ExchangeWithConn(m, ce.Conn)
 
 		if err != nil {
-			ResolverErrorsCounter.Inc()
+			ResolverErrorsCounter.WithLabelValues(ce.Address).Inc()
 			// build a huge error string of all errors from all servers
 			errorstring = fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s: %s", domain, address, port, err, errorstring)
 			// try the next one

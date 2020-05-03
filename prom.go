@@ -34,10 +34,12 @@ var (
 		Name: "stubbage_recursive_queries_total",
 		Help: "The total number of recursive queries run by this server",
 	})
-	ResolverErrorsCounter = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "stubbage_resolver_errors_total",
-		Help: "The total number of times an upstream resolver had errors",
-	})
+	ResolverErrorsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "stubbage_resolver_errors_total",
+			Help: "The total number of times an upstream resolver had errors",
+		},
+		[]string{"destination"},
+	)
 	LocalServfailsCounter = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "stubbage_servfails_total",
 		Help: "The total number of times the local server had to throw SERVFAIL",
@@ -52,18 +54,24 @@ var (
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	})
 	TLSTimer = promauto.NewSummaryVec(prometheus.SummaryOpts{
-		Name:       "stubbage_tls_connection_time",
-		Help:       "times the pure connection time of tls",
-		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-	}, []string{"destination"})
-	NewConnectionAttemptsCounter = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "stubbage_new_connection_attempts_total",
-		Help: "amount of total new connections attempted",
-	})
-	ReusedConnectionsCounter = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "stubbage_reused_connections_total",
-		Help: "times that a connection from the server connection pool was reused",
-	})
+			Name:       "stubbage_tls_connection_time",
+			Help:       "times the pure connection time of tls",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"destination"},
+	)
+	NewConnectionAttemptsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "stubbage_new_connection_attempts_total",
+			Help: "amount of total new connections attempted",
+		},
+		[]string{"destination"},
+	)
+	ReusedConnectionsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "stubbage_reused_connections_total",
+			Help: "times that a connection from the server connection pool was reused",
+		},
+		[]string{"destination"},
+	)
 )
 
 func InitPrometheus(router *mux.Router) {
