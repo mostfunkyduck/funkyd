@@ -204,12 +204,14 @@ func (rcache *RecordCache) Clean() int {
 // Starts the internal cache clean timer that will periodically prune expired cache entries
 func (rcache *RecordCache) Init() {
 
+	Logger.Log(NewLogMessage(INFO, fmt.Sprintf("initializing clean ticket for %d second intervals", 1), "", "starting ticket", ""))
 	ticker := time.NewTicker(1 * time.Second)
 	go func() {
 		for range ticker.C {
-			Logger.Log(NewLogMessage(DEBUG, "starting clean operation", "clean ticker ticked", "", ""))
 			recs_deleted := rcache.Clean()
-			Logger.Log(NewLogMessage(DEBUG, fmt.Sprintf("deleted [%d] records", recs_deleted), "clean operation finished", "", ""))
+			if recs_deleted > 0 {
+				Logger.Log(NewLogMessage(DEBUG, fmt.Sprintf("deleted [%d] records", recs_deleted), "clean operation finished", "", ""))
+			}
 		}
 	}()
 	return

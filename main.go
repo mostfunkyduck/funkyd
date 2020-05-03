@@ -37,20 +37,14 @@ func validateFlags() error {
 func main() {
 	flag.Parse()
 	validateFlags()
+
 	log.Printf("reading configuration from [%s]", *confFile)
 	// read in configuration
 	err := InitConfiguration(*confFile)
 	if err != nil {
 		log.Fatalf("could not open configuration: %s\n", err)
 	}
-	config := GetConfiguration()
-	InitLoggers(LogLevel(config.Level))
-	Logger.Log(NewLogMessage(
-		INFO,
-		fmt.Sprintf("reading configuration from [%s]", *confFile),
-		"",
-		"",
-		""))
+	InitLoggers()
 	InitApi()
 	server, err := NewServer()
 	if err != nil {
@@ -58,6 +52,7 @@ func main() {
 	}
 
 	// read in zone files, if configured to do so
+	config := GetConfiguration()
 	for _, file := range config.ZoneFiles {
 		file, err := ioutil.ReadFile(file)
 		if err != nil {

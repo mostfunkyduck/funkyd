@@ -17,8 +17,9 @@ const (
 )
 
 type logger struct {
-	level  LogLevel
-	handle io.Writer
+	level      LogLevel
+	handle     io.Writer
+	alwaysTrim bool
 }
 
 type logMessage struct {
@@ -48,8 +49,37 @@ func (l logger) SetLevel(level LogLevel) {
 	l.level = level
 }
 
+// takes a structured message, outputs in trimmed format (may make parsing more complicated, but is less verbose)
+func (l logger) LogTrimmed(message logMessage) error {
+	if message.Level <= l.level {
+		output := ""
+		if message.What != "" {
+			output = fmt.Sprintf("%s [%s]", output, message.What)
+		}
+
+		if message.Why != "" {
+			output = fmt.Sprintf("%s [%s]", output, message.Why)
+		}
+
+		if message.Next != "" {
+			output = fmt.Sprintf("%s [%s]", output, message.Next)
+		}
+
+		if l.level == DEBUG && message.DebugDetails != "" {
+			output = fmt.Sprintf("%s [%s]", output, message.DebugDetails)
+		}
+
+		l.output(output)
+	}
+	return nil
+}
+
 // takes a structured message, checks log level, outputs it in a set format
 func (l logger) Log(message logMessage) error {
+	if l.alwaysTrim {
+		return l.LogTrimmed(message)
+	}
+
 	if message.Level <= l.level {
 		output := fmt.Sprintf("[%s] [%s] [%s] [%s]",
 			levelToString(message.Level),
@@ -96,26 +126,62 @@ func NewLogMessage(level LogLevel, what string, why string, next string, debugDe
 	}
 }
 
-// initializes a logger
-func InitLoggers(level LogLevel) {
+// helper function to open a file to log to
+// default behavior is to open 'location', other options include:
+// "": /dev/null
+// "/dev/stderr": os.Stderr
+// "/dev/stdout": os.Stdout
+func getLoggerHandle(location string) (*os.File, error) {
+	var handle *os.File
+	var err error
+	switch location {
+	case "":
+		handle, err = os.Open(os.DevNull)
+	case "/dev/stderr":
+		handle = os.Stderr
+	case "/dev/stdout":
+		handle = os.Stdout
+	default:
+		handle, err = os.OpenFile(location, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	}
+	if err != nil {
+		return &os.File{}, fmt.Errorf("could not query logging file [%s]: %s", location, err)
+	}
+	return handle, nil
+}
+
+// initializes loggers
+func InitLoggers() error {
+	config := GetConfiguration()
+	handle, err := getLoggerHandle(config.ServerLog.Location)
+	if err != nil {
+		return fmt.Errorf("could not open server log location [%s]: [%s]", config.ServerLog.Location, err)
+	}
 	l := logger{
-		level:  level,
-		handle: os.Stderr,
+		level:      config.ServerLog.Level,
+		handle:     handle,
+		alwaysTrim: config.ServerLog.TrimFormat,
 	}
 
 	l.Log(NewLogMessage(
 		INFO,
-		fmt.Sprintf("initialized new main logger at level [%s]", levelToString(level)),
+		fmt.Sprintf("initialized new server logger at level [%s]", levelToString(l.level)),
 		"",
 		"",
 		fmt.Sprintf("%v", l),
 	))
 	Logger = l
 
-	// this guy will ALWAYS log until i implement special options to disable query logging
-	QueryLogger = logger{
-		level: DEBUG,
+	handle, err = getLoggerHandle(config.QueryLog.Location)
+	if err != nil {
+		return fmt.Errorf("error opening query log file [%s]: [%s]", config.QueryLog.Location, err)
 	}
+	QueryLogger = logger{
+		level:      DEBUG,
+		handle:     handle,
+		alwaysTrim: config.QueryLog.TrimFormat,
+	}
+
 	l.Log(NewLogMessage(
 		INFO,
 		"initialized new query logger",
@@ -123,4 +189,6 @@ func InitLoggers(level LogLevel) {
 		"",
 		fmt.Sprintf("%v", QueryLogger),
 	))
+
+	return nil
 }

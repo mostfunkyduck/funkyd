@@ -5,22 +5,16 @@ import (
 	"fmt"
 	"github.com/mostfunkyduck/dns"
 	"github.com/prometheus/client_golang/prometheus"
+	"strings"
 	"time"
 )
-
-// convenience function to generate an nxdomain response
-func sendNXDomain(w dns.ResponseWriter, r *dns.Msg) {
-	NXDomainCounter.Inc()
-	m := &dns.Msg{}
-	m.SetRcode(r, dns.RcodeNameError)
-	w.WriteMsg(m)
-}
 
 func sendServfail(w dns.ResponseWriter, r *dns.Msg) {
 	LocalServfailsCounter.Inc()
 	m := &dns.Msg{}
 	m.SetRcode(r, dns.RcodeServerFailure)
 	w.WriteMsg(m)
+	logQuery("servfail", m)
 }
 
 func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
@@ -68,7 +62,7 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 	return &ConnEntry{Conn: conn, Address: address}, nil
 }
 
-func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) {
+func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
 	RecursiveQueryCounter.Inc()
 	// lifted from example code https://github.com/mostfunkyduck/dns/blob/master/example_test.go
 	port := "853"
@@ -91,7 +85,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 		))
 		ce, err := s.GetConnection(address)
 		if err != nil {
-			return Response{}, err
+			return Response{}, "", err
 		}
 		r, _, err := s.dnsClient.ExchangeWithConn(m, ce.Conn)
 
@@ -126,15 +120,16 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, error) 
 		}
 
 		// this one worked, proceeding
-		return s.processResults(*r, domain, rrtype)
+		reply, err := s.processResults(*r, domain, rrtype)
+		return reply, ce.Address, err
 	}
 	// if we went through each server and couldn't find at least one result, bail with the full error string
-	return Response{}, fmt.Errorf(errorstring)
+	return Response{}, "", fmt.Errorf(errorstring)
 }
 
 // retrieves the record for that domain, either from cache or from
 // a recursive query
-func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, error) {
+func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, string, error) {
 	// First: check caches
 
 	// Need to keep caches locked until the end of the function because
@@ -142,27 +137,45 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, e
 	cached_response, ok := server.Cache.Get(domain, rrtype)
 	if ok {
 		CacheHitsCounter.Inc()
-		return cached_response, nil
+		return cached_response, "cache", nil
 	}
 
 	// Now check the hosted cache (stuff in our zone files that we're taking care of
 	cached_response, ok = server.HostedCache.Get(domain, rrtype)
 	if ok {
 		HostedCacheHitsCounter.Inc()
-		return cached_response, nil
+		return cached_response, "cache", nil
 	}
 
 	// Second, query upstream if there's no cache
 	// TODO only do if requested b/c thats what the spec says IIRC
-	response, err := server.RecursiveQuery(domain, rrtype)
+	response, source, err := server.RecursiveQuery(domain, rrtype)
 	if err != nil {
-		return response, fmt.Errorf("error running recursive query on domain [%s]: %s\n", domain, err)
+		return response, "", fmt.Errorf("error running recursive query on domain [%s]: %s\n", domain, err)
 	}
 	server.Cache.Add(response)
-	return response, nil
+	return response, source, nil
+}
+func logQuery(source string, response *dns.Msg) error {
+	// queried domain, query type, opcode,	response, authoritative NS
+	var logline string
+	for i, _ := range response.Question {
+		for j, _ := range response.Answer {
+			answerBits := strings.Split(response.Answer[j].String(), " ")
+			logline = fmt.Sprintf("%s	%s	%s	%s	%s", response.Question[i].Name, dns.Type(response.Question[i].Qtype).String(), dns.OpcodeToString[response.Opcode], answerBits[len(answerBits)-1], fmt.Sprintf("[%s]", source))
+			QueryLogger.LogTrimmed(NewLogMessage(
+				CRITICAL,
+				logline,
+				"",
+				"",
+				"",
+			))
+		}
+	}
+	return nil
 }
 
-func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	TotalDnsQueriesCounter.Inc()
 	queryTimer := prometheus.NewTimer(QueryTimer)
 
@@ -175,7 +188,7 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	go func() {
 		defer queryTimer.ObserveDuration()
-		response, err := server.RetrieveRecords(domain, r.Question[0].Qtype)
+		response, source, err := s.RetrieveRecords(domain, r.Question[0].Qtype)
 		if err != nil {
 			Logger.Log(NewLogMessage(
 				ERROR,
@@ -191,6 +204,7 @@ func (server *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		// this calls reply.SetReply() as well, correctly configuring all the metadata
 		reply.SetRcode(r, response.Entry.Rcode)
 		w.WriteMsg(reply)
+		logQuery(source, reply)
 	}()
 }
 
