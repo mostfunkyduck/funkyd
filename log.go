@@ -2,10 +2,10 @@ package main
 
 // structured logger
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-  "encoding/json"
 )
 
 const (
@@ -18,15 +18,15 @@ const (
 )
 
 type logger struct {
-	level      LogLevel
-	handle     io.Writer
+	level  LogLevel
+	handle io.Writer
 }
 
 type LogContext map[string]string
 type logMessage struct {
 	Level LogLevel
 
-  Context LogContext
+	Context LogContext
 	// Verbose details
 	DebugDetails string
 }
@@ -43,23 +43,23 @@ func (l logger) SetLevel(level LogLevel) {
 }
 
 func parseKeys(context map[string]string) string {
-  output, err := json.Marshal(context)
-  if err != nil {
-    return fmt.Sprintf("could not marshal [%v] to JSON", context)
-  }
-  return string(output)
+	output, err := json.Marshal(context)
+	if err != nil {
+		return fmt.Sprintf("could not marshal [%v] to JSON", context)
+	}
+	return string(output)
 }
 
 // takes a structured message, checks log level, outputs it in a set format
 func (l logger) Log(message logMessage) {
-  if l.handle == nil {
-    // this logger was never initialized, just bail
-    return
-  }
-  if message.Level <= l.level {
-    output := parseKeys(message.Context)
-    l.output(output)
-  }
+	if l.handle == nil {
+		// this logger was never initialized, just bail
+		return
+	}
+	if message.Level <= l.level {
+		output := parseKeys(message.Context)
+		l.output(output)
+	}
 }
 
 func (l logger) output(output string) {
@@ -84,12 +84,12 @@ func levelToString(level LogLevel) string {
 
 // constructor, enforces format
 func NewLogMessage(level LogLevel, context LogContext, debugDetails string) logMessage {
-  if level == DEBUG {
-    context["debug"] = debugDetails
-  }
+	if level == DEBUG {
+		context["debug"] = debugDetails
+	}
 	return logMessage{
 		Level:        level,
-    Context:      context,
+		Context:      context,
 		DebugDetails: debugDetails,
 	}
 }
@@ -126,15 +126,15 @@ func InitLoggers() error {
 		return fmt.Errorf("could not open server log location [%s]: [%s]", config.ServerLog.Location, err)
 	}
 	l := logger{
-		level:      config.ServerLog.Level,
-		handle:     handle,
+		level:  config.ServerLog.Level,
+		handle: handle,
 	}
 
 	l.Log(NewLogMessage(
 		INFO,
-		LogContext {
-      "what": fmt.Sprintf("initialized new server logger at level [%s]", levelToString(l.level)),
-    },
+		LogContext{
+			"what": fmt.Sprintf("initialized new server logger at level [%s]", levelToString(l.level)),
+		},
 		fmt.Sprintf("%v", l),
 	))
 	Logger = l
@@ -144,15 +144,15 @@ func InitLoggers() error {
 		return fmt.Errorf("error opening query log file [%s]: [%s]", config.QueryLog.Location, err)
 	}
 	QueryLogger = logger{
-		level:      DEBUG,
-		handle:     handle,
+		level:  DEBUG,
+		handle: handle,
 	}
 
 	l.Log(NewLogMessage(
 		INFO,
-		LogContext {
-      "what": "initialized new query logger",
-    },
+		LogContext{
+			"what": "initialized new query logger",
+		},
 		fmt.Sprintf("%v", QueryLogger),
 	))
 

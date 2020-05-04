@@ -33,6 +33,9 @@ type Configuration struct {
 	// Sets the maximum connections to keep in the connection pool per upstream resolver
 	MaxConnsPerHost int `json:"max_conns_per_host"`
 
+	// Maximum concurrent queries
+	ConcurrentQueries int `json:"concurrent_queries"`
+
 	// Server logging
 	ServerLog logConfig `json:"server_log"`
 

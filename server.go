@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sync/semaphore"
 	"strings"
 	"time"
 )
@@ -35,11 +37,11 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 
 	Logger.Log(NewLogMessage(
 		INFO,
-		LogContext {
-      "what": fmt.Sprintf("creating new connection to %s", address),
-		  "why":  fmt.Sprintf("error [%s]", err),
-		  "next": "dialing",
-    },
+		LogContext{
+			"what": fmt.Sprintf("creating new connection to %s", address),
+			"why":  fmt.Sprintf("error [%s]", err),
+			"next": "dialing",
+		},
 		"",
 	))
 
@@ -49,15 +51,22 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 	)
 	NewConnectionAttemptsCounter.WithLabelValues(address).Inc()
 	conn, err := s.dnsClient.Dial(address)
-  tlsTimer.ObserveDuration()
+	tlsTimer.ObserveDuration()
 	if err != nil {
+		Logger.Log(NewLogMessage(
+			ERROR,
+			LogContext{
+				"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
+			},
+			"",
+		))
 		return &ConnEntry{}, err
 	}
 	Logger.Log(NewLogMessage(
-		DEBUG,
-		LogContext {
-      "what": fmt.Sprintf("connection to %s successful", address),
-    },
+		INFO,
+		LogContext{
+			"what": fmt.Sprintf("connection to %s successful", address),
+		},
 		fmt.Sprintf("%v\n", conn),
 	))
 
@@ -78,26 +87,35 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 		address := host + ":" + port
 		Logger.Log(NewLogMessage(
 			INFO,
-			LogContext {
-        "what": fmt.Sprintf("attempting connection to [%s]\n", address),
-			  "next": "checking connection pool",
-      },
+			LogContext{
+				"what": fmt.Sprintf("need connection to [%s]", address),
+				"next": "checking connection pool",
+			},
 			"",
 		))
 		ce, err := s.GetConnection(address)
 		if err != nil {
-			return Response{}, "", err
+			Logger.Log(NewLogMessage(
+				ERROR,
+				LogContext{
+					"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
+					"next": "continuing to next resolver",
+				},
+				"",
+			))
+			continue
 		}
 		r, _, err := s.dnsClient.ExchangeWithConn(m, ce.Conn)
 
 		if err != nil {
+			ce.Conn.Close()
 			ResolverErrorsCounter.WithLabelValues(ce.Address).Inc()
 			Logger.Log(NewLogMessage(
 				ERROR,
-				LogContext {
-          "what": fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s", domain, address, port, err),
-				  "next": "continuing to next resolver",
-        },
+				LogContext{
+					"what": fmt.Sprintf("error looking up domain [%s] on server [%s]: %s", domain, address, err),
+					"next": "continuing to next resolver",
+				},
 				"",
 			))
 			// try the next one
@@ -108,11 +126,11 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 		if err != nil {
 			Logger.Log(NewLogMessage(
 				ERROR,
-				LogContext {
-          "what": fmt.Sprintf("could not add connection entry [%v] to pool!", ce),
-				  "why": fmt.Sprintf("%s", err),
-				  "next": "continuing without cache, disregarding error",
-        },
+				LogContext{
+					"what": fmt.Sprintf("could not add connection entry [%v] to pool!", ce),
+					"why":  fmt.Sprintf("%s", err),
+					"next": "continuing without cache, disregarding error",
+				},
 				fmt.Sprintf("server: [%v]", s),
 			))
 		}
@@ -120,11 +138,11 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 		if !added {
 			Logger.Log(NewLogMessage(
 				INFO,
-        LogContext {
-          "what": fmt.Sprintf("not adding connection to [%s] to pool", ce.Address),
-          "why": "connection pool was full",
-          "next": "closing connection",
-        },
+				LogContext{
+					"what": fmt.Sprintf("not adding connection to [%s] to pool", ce.Address),
+					"why":  "connection pool was full",
+					"next": "closing connection",
+				},
 				fmt.Sprintf("connEntry: [%v]", ce),
 			))
 			ce.Conn.Close()
@@ -168,23 +186,22 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, s
 	return response, source, nil
 }
 func logQuery(source string, duration time.Duration, response *dns.Msg) error {
-	// queried domain, query type, opcode,	response, authoritative NS
-  var context LogContext
+	var queryContext LogContext
 	for i, _ := range response.Question {
 		for j, _ := range response.Answer {
 			answerBits := strings.Split(response.Answer[j].String(), " ")
-			context = LogContext {
-				"name": response.Question[i].Name,
-				"type": dns.Type(response.Question[i].Qtype).String(),
-				"opcode": dns.OpcodeToString[response.Opcode],
-				"answer": answerBits[len(answerBits)-1],
+			queryContext = LogContext{
+				"name":         response.Question[i].Name,
+				"type":         dns.Type(response.Question[i].Qtype).String(),
+				"opcode":       dns.OpcodeToString[response.Opcode],
+				"answer":       answerBits[len(answerBits)-1],
 				"answerSource": fmt.Sprintf("[%s]", source),
-				"duration": fmt.Sprintf("%s", duration),
-      }
+				"duration":     fmt.Sprintf("%s", duration),
+			}
 			QueryLogger.Log(NewLogMessage(
 				CRITICAL,
-        context,
-        "",
+				queryContext,
+				"",
 			))
 		}
 	}
@@ -202,19 +219,40 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg.Authoritative = false
 	msg.RecursionAvailable = true
 
+	config := GetConfiguration()
+	var c int64
+	c = int64(config.ConcurrentQueries)
+	if c == 0 {
+		c = 10
+	}
+	sem := semaphore.NewWeighted(c)
+	ctx := context.TODO()
+	if err := sem.Acquire(ctx, 1); err != nil {
+		Logger.Log(NewLogMessage(
+			CRITICAL,
+			LogContext{
+				"what": "failed to acquire semaphore allowing queries to progress",
+				"why":  fmt.Sprintf("%s", err),
+				"next": "panicking",
+			},
+			"",
+		))
+		panic(err)
+	}
 	go func() {
+		defer sem.Release(1)
 		response, source, err := s.RetrieveRecords(domain, r.Question[0].Qtype)
-		duration := queryTimer.ObserveDuration()
 		if err != nil {
 			Logger.Log(NewLogMessage(
 				ERROR,
-        LogContext {
-          "what": fmt.Sprintf("error retrieving record for domain [%s]", domain),
-          "why": fmt.Sprintf("%s", err),
-          "next": "returning SERVFAIL",
-        },
-        fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response),
+				LogContext{
+					"what": fmt.Sprintf("error retrieving record for domain [%s]", domain),
+					"why":  fmt.Sprintf("%s", err),
+					"next": "returning SERVFAIL",
+				},
+				fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response),
 			))
+			duration := queryTimer.ObserveDuration()
 			sendServfail(w, duration, r)
 			return
 		}
@@ -223,28 +261,51 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		// this calls reply.SetReply() as well, correctly configuring all the metadata
 		reply.SetRcode(r, response.Entry.Rcode)
 		w.WriteMsg(reply)
+		duration := queryTimer.ObserveDuration()
 		logQuery(source, duration, reply)
 	}()
 }
 
 func buildClient() (*dns.Client, error) {
 	cl := &dns.Client{
-		SingleInflight: true,
+		SingleInflight: false,
+		Timeout:        10 * time.Second,
 		Net:            "tcp-tls",
 		TLSConfig:      &tls.Config{},
 	}
 	Logger.Log(NewLogMessage(
 		INFO,
-    LogContext {
-      "what": "instantiated new dns client in TLS mode",
-		  "why": "",
-		  "next": "returning for use",
-    },
+		LogContext{
+			"what": "instantiated new dns client in TLS mode",
+			"why":  "",
+			"next": "returning for use",
+		},
 		fmt.Sprintf("%v\n", cl),
 	))
 	return cl, nil
 }
 
+// creates some connections on startup
+// so that clients don't have to wait for handshakes
+func (s *Server) warmConnections() error {
+	config := GetConfiguration()
+	conns := []*ConnEntry{}
+	// go through each resolver,  open the maximum number of connections to each one
+	for _, r := range config.Resolvers {
+		address := fmt.Sprintf("%s:%s", r, "853")
+		for i := 0; i < 5; i++ {
+			c, err := s.GetConnection(address)
+			if err != nil {
+				return fmt.Errorf("could not initiate connection to [%s]: %s", address, err)
+			}
+			conns = append(conns, c)
+		}
+	}
+	for _, v := range conns {
+		s.connPool.Add(v)
+	}
+	return nil
+}
 func NewServer() (*Server, error) {
 	client, err := buildClient()
 	if err != nil {
@@ -264,5 +325,9 @@ func NewServer() (*Server, error) {
 	hostedcache, err := NewCache()
 	// don't init, we don't clean this one
 	ret.HostedCache = hostedcache
+
+	if err := ret.warmConnections(); err != nil {
+		return ret, err
+	}
 	return ret, nil
 }
