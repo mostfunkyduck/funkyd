@@ -1,10 +1,11 @@
 package main
 
-// logging wrapper implementing https://www.usenix.org/system/files/login/articles/login_summer19_07_legaza.pdf
+// structured logger
 import (
 	"fmt"
 	"io"
 	"os"
+  "encoding/json"
 )
 
 const (
@@ -19,21 +20,13 @@ const (
 type logger struct {
 	level      LogLevel
 	handle     io.Writer
-	alwaysTrim bool
 }
 
+type LogContext map[string]string
 type logMessage struct {
 	Level LogLevel
 
-	// What happened?
-	What string
-
-	// Why did this happen?
-	Why string
-
-	// What do we do next?
-	Next string
-
+  Context LogContext
 	// Verbose details
 	DebugDetails string
 }
@@ -49,54 +42,27 @@ func (l logger) SetLevel(level LogLevel) {
 	l.level = level
 }
 
-// takes a structured message, outputs in trimmed format (may make parsing more complicated, but is less verbose)
-func (l logger) LogTrimmed(message logMessage) error {
-	if message.Level <= l.level {
-		output := ""
-		if message.What != "" {
-			output = fmt.Sprintf("%s [%s]", output, message.What)
-		}
-
-		if message.Why != "" {
-			output = fmt.Sprintf("%s [%s]", output, message.Why)
-		}
-
-		if message.Next != "" {
-			output = fmt.Sprintf("%s [%s]", output, message.Next)
-		}
-
-		if l.level == DEBUG && message.DebugDetails != "" {
-			output = fmt.Sprintf("%s [%s]", output, message.DebugDetails)
-		}
-
-		l.output(output)
-	}
-	return nil
+func parseKeys(context map[string]string) string {
+  output, err := json.Marshal(context)
+  if err != nil {
+    return fmt.Sprintf("could not marshal [%v] to JSON", context)
+  }
+  return string(output)
 }
 
 // takes a structured message, checks log level, outputs it in a set format
-func (l logger) Log(message logMessage) error {
-	if l.alwaysTrim {
-		return l.LogTrimmed(message)
-	}
-
-	if message.Level <= l.level {
-		output := fmt.Sprintf("[%s] [%s] [%s] [%s]",
-			levelToString(message.Level),
-			message.What,
-			message.Why,
-			message.Next)
-		if l.level == DEBUG {
-			output = fmt.Sprintf("%s [%s]", output, message.DebugDetails)
-		} else {
-			output = fmt.Sprintf("%s []", output)
-		}
-		l.output(output)
-	}
-	return nil
+func (l logger) Log(message logMessage) {
+  if l.handle == nil {
+    // this logger was never initialized, just bail
+    return
+  }
+  if message.Level <= l.level {
+    output := parseKeys(message.Context)
+    l.output(output)
+  }
 }
 
-func (l *logger) output(output string) {
+func (l logger) output(output string) {
 	fmt.Fprintf(l.handle, "%s\n", output)
 }
 
@@ -117,11 +83,13 @@ func levelToString(level LogLevel) string {
 }
 
 // constructor, enforces format
-func NewLogMessage(level LogLevel, what string, why string, next string, debugDetails string) logMessage {
+func NewLogMessage(level LogLevel, context LogContext, debugDetails string) logMessage {
+  if level == DEBUG {
+    context["debug"] = debugDetails
+  }
 	return logMessage{
 		Level:        level,
-		What:         what,
-		Next:         next,
+    Context:      context,
 		DebugDetails: debugDetails,
 	}
 }
@@ -160,14 +128,13 @@ func InitLoggers() error {
 	l := logger{
 		level:      config.ServerLog.Level,
 		handle:     handle,
-		alwaysTrim: config.ServerLog.TrimFormat,
 	}
 
 	l.Log(NewLogMessage(
 		INFO,
-		fmt.Sprintf("initialized new server logger at level [%s]", levelToString(l.level)),
-		"",
-		"",
+		LogContext {
+      "what": fmt.Sprintf("initialized new server logger at level [%s]", levelToString(l.level)),
+    },
 		fmt.Sprintf("%v", l),
 	))
 	Logger = l
@@ -179,14 +146,13 @@ func InitLoggers() error {
 	QueryLogger = logger{
 		level:      DEBUG,
 		handle:     handle,
-		alwaysTrim: config.QueryLog.TrimFormat,
 	}
 
 	l.Log(NewLogMessage(
 		INFO,
-		"initialized new query logger",
-		"",
-		"",
+		LogContext {
+      "what": "initialized new query logger",
+    },
 		fmt.Sprintf("%v", QueryLogger),
 	))
 

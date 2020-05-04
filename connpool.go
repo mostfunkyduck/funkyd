@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/mostfunkyduck/dns"
+	"github.com/miekg/dns"
 )
 
 // TODO link that project which sorta inspired this

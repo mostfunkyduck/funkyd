@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/mostfunkyduck/dns"
+	"github.com/miekg/dns"
 	"sync"
 	"time"
 )

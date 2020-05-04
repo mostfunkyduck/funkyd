@@ -6,7 +6,7 @@ package main
 // shoehorn in a real system once i proof-of-concept this one
 import (
 	"fmt"
-	"github.com/mostfunkyduck/dns"
+	"github.com/miekg/dns"
 	"time"
 )
 
@@ -18,9 +18,10 @@ func formatKey(key string, qtype uint16) string {
 func (response Response) IsExpired(rr dns.RR) bool {
 	Logger.Log(NewLogMessage(
 		DEBUG,
-		fmt.Sprintf("checking if record with ttl [%d] off of creation time [%s] has expired", rr.Header().Ttl, response.CreationTime),
-		"",
-		fmt.Sprintf("returning whether or not the creation time + the TTL is before %v", time.Now()),
+		LogContext{
+      "what": fmt.Sprintf("checking if record with ttl [%d] off of creation time [%s] has expired", rr.Header().Ttl, response.CreationTime),
+		  "next": fmt.Sprintf("returning whether or not the creation time + the TTL is before %v", time.Now()),
+    },
 		"",
 	))
 	return response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
@@ -38,9 +39,9 @@ func (r Response) updateTtl(rr dns.RR) {
 	if r.IsExpired(rr) {
 		Logger.Log(NewLogMessage(
 			DEBUG,
-			fmt.Sprintf("attempted to update TTL on rr [%v] using response [%v]", rr, r),
-			"",
-			"not changing anything",
+			LogContext {
+        "what": fmt.Sprintf("attempted to update TTL on rr [%v] using response [%v]", rr, r),
+      },
 			"",
 		))
 		return
@@ -50,9 +51,11 @@ func (r Response) updateTtl(rr dns.RR) {
 	castTtl := uint32(ttl)
 	Logger.Log(NewLogMessage(
 		DEBUG,
-		fmt.Sprintf("full ttl of [%v] should be [%f] seconds, cast to uint32, it becomes [%d]", rr, ttl, castTtl),
-		"updating cached TTL",
-		"performing update",
+		LogContext {
+      "what": fmt.Sprintf("full ttl of [%v] should be [%f] seconds, cast to uint32, it becomes [%d]", rr, ttl, castTtl),
+		  "why": "updating cached TTL",
+		  "next": "performing update",
+    },
 		"",
 	))
 	rr.Header().Ttl = uint32(ttl)
@@ -66,13 +69,7 @@ func (r *RecordCache) Size() int {
 func (rcache *RecordCache) Add(response Response) {
 	rcache.Lock()
 	defer rcache.Unlock()
-	Logger.Log(NewLogMessage(
-		DEBUG,
-		fmt.Sprintf("adding [%v] to cache. cache length beforehand is [%d]\n", response, len(rcache.cache)),
-		"",
-		"",
-		"",
-	))
+
 	rcache.cache[formatKey(response.Key, response.Qtype)] = response
 	CacheSizeGauge.Set(float64(len(rcache.cache)))
 }
@@ -83,30 +80,32 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 	defer rcache.RUnlock()
 	Logger.Log(NewLogMessage(
 		DEBUG,
-		fmt.Sprintf("cache locked, attempting to get [%s] [%d] from cache", key, qtype),
-		"",
-		"",
-		"",
+    LogContext {
+      "what": fmt.Sprintf("cache locked, attempting to get [%s] [%d] from cache", key, qtype),
+    },
+    "",
 	))
 	response, ok := rcache.cache[formatKey(key, qtype)]
 	if !ok {
-		Logger.Log(NewLogMessage(DEBUG, "cache miss", "", "", ""))
+		Logger.Log(NewLogMessage(DEBUG, LogContext{"what": "cache miss"}, ""))
 		return Response{}, false
 	}
 
 	if response.Qtype != qtype {
-		Logger.Log(NewLogMessage(DEBUG, "mismatched qtype!", fmt.Sprintf("[%d] != [%d]", response.Qtype, qtype), "", ""))
+		Logger.Log(NewLogMessage(WARNING, LogContext{"what": "mismatched qtype!", "why": fmt.Sprintf("[%d] != [%d]", response.Qtype, qtype)}, ""))
 		return Response{}, false
 	}
 
-	Logger.Log(NewLogMessage(DEBUG, "cache hit!", "", "validating and assembling response from rr's", fmt.Sprintf("%v", response)))
+	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": "cache hit!", "next": "validating and assembling response from rr's"}, fmt.Sprintf("%v", response)))
 	// there are records for this domain
 	for _, rec := range response.Entry.Answer {
 		Logger.Log(NewLogMessage(
 			DEBUG,
-			fmt.Sprintf("evaluating validity of record [%v]", rec),
-			"assembling response to query",
-			"updating TTL in cache",
+      LogContext {
+			  "what": fmt.Sprintf("evaluating validity of record [%v]", rec),
+			  "why": "assembling response to query",
+			  "next": "updating TTL in cache",
+      },
 			fmt.Sprintf("%v", response)))
 		// just in case the clean job hasn't fired, filter out nastiness
 		response.updateTtl(rec)
@@ -116,11 +115,11 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 
 			// TODO differentiate between synthesized CNAMEs and regular records - CNAMES have long TTLs  since they refer to an A
 			// that's holding the actual value, therefore the synthesized A will die before the CNAME itself.
-			Logger.Log(NewLogMessage(DEBUG, "cached entry has expired", "response contains record with expired TTL", "returning cache miss", ""))
+			Logger.Log(NewLogMessage(DEBUG, LogContext{ "what": "cached entry has expired", "why": "response contains record with expired TTL", "next": "returning cache miss"}, ""))
 			return Response{}, false
 		}
 	}
-	Logger.Log(NewLogMessage(DEBUG, fmt.Sprintf("returning [%v] from cache get", key), "", "", ""))
+	Logger.Log(NewLogMessage(DEBUG, LogContext{ "what": fmt.Sprintf("returning [%v] from cache get", key)}, ""))
 	return response, true
 }
 
@@ -129,9 +128,10 @@ func (rcache *RecordCache) Remove(response Response) error {
 	key := formatKey(response.Key, response.Qtype)
 	Logger.Log(NewLogMessage(
 		DEBUG,
-		fmt.Sprintf("removing [%v] from cache using key [%v]", response, key),
-		"",
-		"deleting from cache",
+		LogContext {
+      "what": fmt.Sprintf("removing [%v] from cache using key [%v]", response, key),
+		  "next": "deleting from cache",
+    },
 		"",
 	))
 	delete(rcache.cache, key)
@@ -164,9 +164,11 @@ func (rcache *RecordCache) Clean() int {
 
 	Logger.Log(NewLogMessage(
 		DEBUG,
-		"starting clean job, cache locked",
-		"cleaning record cache",
-		"iterating through cache",
+		LogContext {
+      "what": "starting clean job, cache locked",
+		  "why": "cleaning record cache",
+		  "next": "iterating through cache",
+    },
 		fmt.Sprintf("%v", rcache),
 	))
 
@@ -175,9 +177,11 @@ func (rcache *RecordCache) Clean() int {
 	for key, response := range rcache.cache {
 		Logger.Log(NewLogMessage(
 			DEBUG,
-			fmt.Sprintf("examining entry with key [%s], response [%v]", key, response),
-			"evaluating for cleaning",
-			"updating TTLs in all response records and expiring as needed",
+      LogContext {
+			  "what": fmt.Sprintf("examining entry with key [%s], response [%v]", key, response),
+			  "why": "evaluating for cleaning",
+			  "next": "updating TTLs in all response records and expiring as needed",
+      },
 			"",
 		))
 		for _, record := range response.Entry.Answer {
@@ -187,9 +191,11 @@ func (rcache *RecordCache) Clean() int {
 				// CNAME analysis will have to happen here
 				Logger.Log(NewLogMessage(
 					INFO,
-					fmt.Sprintf("record [%v] has expired, removing entire cached response [%v]", record, response),
-					"response has expired records",
-					"continuing cleaning job on next response",
+          LogContext {
+					  "what": fmt.Sprintf("record [%v] has expired, removing entire cached response [%v]", record, response),
+					  "why": "response has expired records",
+					  "next": "continuing cleaning job on next response",
+          },
 					fmt.Sprintf("%v", rcache),
 				))
 				rcache.Remove(response)
@@ -204,14 +210,11 @@ func (rcache *RecordCache) Clean() int {
 // Starts the internal cache clean timer that will periodically prune expired cache entries
 func (rcache *RecordCache) Init() {
 
-	Logger.Log(NewLogMessage(INFO, fmt.Sprintf("initializing clean ticket for %d second intervals", 1), "", "starting ticket", ""))
+	Logger.Log(NewLogMessage(INFO, LogContext{ "what": fmt.Sprintf("initializing clean ticket for %d second intervals", 1), "next": "starting ticker"}, ""))
 	ticker := time.NewTicker(1 * time.Second)
 	go func() {
 		for range ticker.C {
-			recs_deleted := rcache.Clean()
-			if recs_deleted > 0 {
-				Logger.Log(NewLogMessage(DEBUG, fmt.Sprintf("deleted [%d] records", recs_deleted), "clean operation finished", "", ""))
-			}
+			rcache.Clean()
 		}
 	}()
 	return

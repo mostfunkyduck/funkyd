@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/mostfunkyduck/dns"
+	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"strings"
 	"time"
@@ -35,9 +35,11 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 
 	Logger.Log(NewLogMessage(
 		INFO,
-		fmt.Sprintf("creating new connection to %s", address),
-		fmt.Sprintf("error [%s]", err),
-		"dialing",
+		LogContext {
+      "what": fmt.Sprintf("creating new connection to %s", address),
+		  "why":  fmt.Sprintf("error [%s]", err),
+		  "next": "dialing",
+    },
 		"",
 	))
 
@@ -47,15 +49,15 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 	)
 	NewConnectionAttemptsCounter.WithLabelValues(address).Inc()
 	conn, err := s.dnsClient.Dial(address)
-	Logger.Log(NewLogMessage(DEBUG, fmt.Sprintf("connection took [%s]\n", tlsTimer.ObserveDuration()), "", "", ""))
+  tlsTimer.ObserveDuration()
 	if err != nil {
 		return &ConnEntry{}, err
 	}
 	Logger.Log(NewLogMessage(
 		DEBUG,
-		fmt.Sprintf("connection to %s successful", address),
-		"no error returned",
-		"",
+		LogContext {
+      "what": fmt.Sprintf("connection to %s successful", address),
+    },
 		fmt.Sprintf("%v\n", conn),
 	))
 
@@ -64,7 +66,7 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 
 func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
 	RecursiveQueryCounter.Inc()
-	// lifted from example code https://github.com/mostfunkyduck/dns/blob/master/example_test.go
+	// lifted from example code https://github.com/miekg/dns/blob/master/example_test.go
 	port := "853"
 	// TODO error checking
 	config := GetConfiguration()
@@ -76,9 +78,10 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 		address := host + ":" + port
 		Logger.Log(NewLogMessage(
 			INFO,
-			fmt.Sprintf("attempting connection to [%s]\n", address),
-			"",
-			"checking connection pool",
+			LogContext {
+        "what": fmt.Sprintf("attempting connection to [%s]\n", address),
+			  "next": "checking connection pool",
+      },
 			"",
 		))
 		ce, err := s.GetConnection(address)
@@ -91,9 +94,10 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 			ResolverErrorsCounter.WithLabelValues(ce.Address).Inc()
 			Logger.Log(NewLogMessage(
 				ERROR,
-				fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s", domain, address, port, err),
-				"",
-				"continuing to next resolver",
+				LogContext {
+          "what": fmt.Sprintf("error looking up domain [%s] on server [%s:%s]: %s", domain, address, port, err),
+				  "next": "continuing to next resolver",
+        },
 				"",
 			))
 			// try the next one
@@ -104,9 +108,11 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 		if err != nil {
 			Logger.Log(NewLogMessage(
 				ERROR,
-				fmt.Sprintf("could not add connection entry [%v] to pool!", ce),
-				fmt.Sprintf("%s", err),
-				"continuing without cache, disregarding error",
+				LogContext {
+          "what": fmt.Sprintf("could not add connection entry [%v] to pool!", ce),
+				  "why": fmt.Sprintf("%s", err),
+				  "next": "continuing without cache, disregarding error",
+        },
 				fmt.Sprintf("server: [%v]", s),
 			))
 		}
@@ -114,9 +120,11 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 		if !added {
 			Logger.Log(NewLogMessage(
 				INFO,
-				fmt.Sprintf("not adding connection to [%s] to pool", ce.Address),
-				"connection pool was full",
-				"closing connection",
+        LogContext {
+          "what": fmt.Sprintf("not adding connection to [%s] to pool", ce.Address),
+          "why": "connection pool was full",
+          "next": "closing connection",
+        },
 				fmt.Sprintf("connEntry: [%v]", ce),
 			))
 			ce.Conn.Close()
@@ -161,25 +169,22 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, s
 }
 func logQuery(source string, duration time.Duration, response *dns.Msg) error {
 	// queried domain, query type, opcode,	response, authoritative NS
-	var logline string
+  var context LogContext
 	for i, _ := range response.Question {
 		for j, _ := range response.Answer {
 			answerBits := strings.Split(response.Answer[j].String(), " ")
-			logline = fmt.Sprintf(
-				"%s	%s	%s	%s	%s %s",
-				response.Question[i].Name,
-				dns.Type(response.Question[i].Qtype).String(),
-				dns.OpcodeToString[response.Opcode],
-				answerBits[len(answerBits)-1],
-				fmt.Sprintf("[%s]", source),
-				fmt.Sprintf("%s", duration),
-			)
-			QueryLogger.LogTrimmed(NewLogMessage(
+			context = LogContext {
+				"name": response.Question[i].Name,
+				"type": dns.Type(response.Question[i].Qtype).String(),
+				"opcode": dns.OpcodeToString[response.Opcode],
+				"answer": answerBits[len(answerBits)-1],
+				"answerSource": fmt.Sprintf("[%s]", source),
+				"duration": fmt.Sprintf("%s", duration),
+      }
+			QueryLogger.Log(NewLogMessage(
 				CRITICAL,
-				logline,
-				"",
-				"",
-				"",
+        context,
+        "",
 			))
 		}
 	}
@@ -203,10 +208,12 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		if err != nil {
 			Logger.Log(NewLogMessage(
 				ERROR,
-				fmt.Sprintf("error retrieving record for domain [%s]", domain),
-				fmt.Sprintf("%s", err),
-				"returning SERVFAIL",
-				fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response),
+        LogContext {
+          "what": fmt.Sprintf("error retrieving record for domain [%s]", domain),
+          "why": fmt.Sprintf("%s", err),
+          "next": "returning SERVFAIL",
+        },
+        fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response),
 			))
 			sendServfail(w, duration, r)
 			return
@@ -228,9 +235,11 @@ func buildClient() (*dns.Client, error) {
 	}
 	Logger.Log(NewLogMessage(
 		INFO,
-		"instantiated new dns client in TLS mode",
-		"",
-		"returning for use",
+    LogContext {
+      "what": "instantiated new dns client in TLS mode",
+		  "why": "",
+		  "next": "returning for use",
+    },
 		fmt.Sprintf("%v\n", cl),
 	))
 	return cl, nil
