@@ -23,10 +23,18 @@ func config(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s\n", str)
 }
 
+func addPratchettHeader(next http.Handler) http.Handler {
+  return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("X-Clacks-Overhead", "GNU Terry Pratchett")
+    next.ServeHTTP(w, r)
+  })
+}
+
 func InitApi() {
 	conf := GetConfiguration()
 	router := mux.NewRouter().StrictSlash(true)
 	InitPrometheus(router)
+  router.Use(addPratchettHeader)
 	router.HandleFunc("/config", config)
 	log.Printf("starting HTTP server on ':%d'\n", conf.HttpPort)
 	// don't block the main thread with this jazz

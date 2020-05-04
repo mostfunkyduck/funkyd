@@ -24,6 +24,7 @@ Perhaps. This is a hobby project, anything it does beyond what other projects do
 Maybe, if you're insane enough to deploy a beta-level project into production
 
 ## Current Goals
+1. routing options, allow discarding internal traffic
 1. Needs more DNS features, especially DNSSEC
 1. HTTP API still not implemented
 1. Cache is still local and uses an unbounded amount of memory
