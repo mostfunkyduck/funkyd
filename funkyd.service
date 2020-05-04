@@ -1,0 +1,10 @@
+[Unit]
+Description=FunkyD DNS proxy
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/funkyd -conf /etc/funkyd.conf
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

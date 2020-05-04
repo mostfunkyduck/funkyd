@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	confFile = flag.String("conf", "", "location of the stubbage configuration file")
+	confFile = flag.String("conf", "", "location of the funkyd configuration file")
 )
 
 func validateConfFile() error {
