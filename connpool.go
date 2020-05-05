@@ -51,16 +51,25 @@ func (c *ConnPool) Add(ce *ConnEntry) (bool, error) {
 		return false, nil
 	}
 
+	// set a default expiration date
 	if (ce.ExpirationDate == time.Time{}) {
 		ce.ExpirationDate = time.Now().Add(5 * time.Minute)
 	}
-	if _, ok := c.cache[ce.Address]; ok {
-		c.cache[ce.Address] = append(c.cache[ce.Address], ce)
-	} else {
-		c.cache[ce.Address] = []*ConnEntry{ce}
+
+	if c.MaxConnsPerHost > 0 {
+		if _, ok := c.cache[ce.Address]; ok {
+			if len(c.cache[ce.Address]) >= c.MaxConnsPerHost {
+				return false, nil
+			}
+			c.cache[ce.Address] = append(c.cache[ce.Address], ce)
+		} else {
+			// the max is greater than zero and there's nothing here, so we can just insert
+			c.cache[ce.Address] = []*ConnEntry{ce}
+		}
+		ConnPoolSizeGauge.WithLabelValues(ce.Address).Set(float64(len(c.cache[ce.Address])))
+		return true, nil
 	}
-	ConnPoolSizeGauge.WithLabelValues(ce.Address).Set(float64(len(c.cache[ce.Address])))
-	return true, nil
+	return false, nil
 }
 
 func (c *ConnPool) Get(address string) (*ConnEntry, error) {
