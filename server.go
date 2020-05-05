@@ -7,6 +7,7 @@ import (
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/semaphore"
+	"math/rand"
 	"strings"
 	"time"
 )
@@ -73,18 +74,29 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 	return &ConnEntry{Conn: conn, Address: address}, nil
 }
 
+//https://www.calhoun.io/how-to-shuffle-arrays-and-slices-in-go/
+func (s *Server) ShuffleResolvers() {
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+	shuffled := make([]Resolver, len(s.Resolvers))
+	perm := r.Perm(len(s.Resolvers))
+	for i, randIndex := range perm {
+		shuffled[i] = s.Resolvers[randIndex]
+	}
+	s.Resolvers = shuffled
+}
 func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
 	RecursiveQueryCounter.Inc()
 	// lifted from example code https://github.com/miekg/dns/blob/master/example_test.go
 	port := "853"
-	// TODO error checking
-	config := GetConfiguration()
 
 	m := &dns.Msg{}
 	m.SetQuestion(domain, rrtype)
 	m.RecursionDesired = true
-	for _, host := range config.Resolvers {
-		address := host + ":" + port
+	// go in random order to spread out load
+	// TODO weight resolvers based on some kind of latency metric
+	s.ShuffleResolvers()
+	for _, host := range s.Resolvers {
+		address := string(host) + ":" + port
 		Logger.Log(NewLogMessage(
 			INFO,
 			LogContext{
@@ -105,8 +117,12 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 			))
 			continue
 		}
+		exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
+			ExchangeTimer.WithLabelValues(address).Observe(v)
+		}),
+		)
 		r, _, err := s.dnsClient.ExchangeWithConn(m, ce.Conn)
-
+		exchangeTimer.ObserveDuration()
 		if err != nil {
 			ce.Conn.Close()
 			ResolverErrorsCounter.WithLabelValues(ce.Address).Inc()
@@ -161,8 +177,6 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, string, error) {
 	// First: check caches
 
-	// Need to keep caches locked until the end of the function because
-	// we may need to add records consistently
 	cached_response, ok := server.Cache.Get(domain, rrtype)
 	if ok {
 		CacheHitsCounter.Inc()
@@ -176,7 +190,7 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, s
 		return cached_response, "cache", nil
 	}
 
-	// Second, query upstream if there's no cache
+	// Next , query upstream if there's no cache
 	// TODO only do if requested b/c thats what the spec says IIRC
 	response, source, err := server.RecursiveQuery(domain, rrtype)
 	if err != nil {
@@ -267,9 +281,10 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func buildClient() (*dns.Client, error) {
+	config := GetConfiguration()
 	cl := &dns.Client{
-		SingleInflight: false,
-		Timeout:        10 * time.Second,
+		SingleInflight: true,
+		Timeout:        config.Timeout * time.Second,
 		Net:            "tcp-tls",
 		TLSConfig:      &tls.Config{},
 	}
@@ -288,10 +303,9 @@ func buildClient() (*dns.Client, error) {
 // creates some connections on startup
 // so that clients don't have to wait for handshakes
 func (s *Server) warmConnections() error {
-	config := GetConfiguration()
 	conns := []*ConnEntry{}
 	// go through each resolver,  open the maximum number of connections to each one
-	for _, r := range config.Resolvers {
+	for _, r := range s.Resolvers {
 		address := fmt.Sprintf("%s:%s", r, "853")
 		for i := 0; i < 5; i++ {
 			c, err := s.GetConnection(address)
@@ -325,7 +339,7 @@ func NewServer() (*Server, error) {
 	hostedcache, err := NewCache()
 	// don't init, we don't clean this one
 	ret.HostedCache = hostedcache
-
+	ret.Resolvers = GetConfiguration().Resolvers
 	if err := ret.warmConnections(); err != nil {
 		return ret, err
 	}

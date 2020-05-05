@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 )
 
 type logConfig struct {
-	// Whether or not this log should be on
-	Enabled bool `json:"enabled"`
 	// What log level to use
 	Level LogLevel `json:"level"`
 	// Where the log file should live
@@ -18,6 +17,12 @@ type logConfig struct {
 }
 
 type Configuration struct {
+	// Dial timeout
+	Timeout time.Duration `json:"timeout"`
+
+	// How long connections should be kept around for, default of 0 will mean unlimited
+	ConnectionLife time.Duration `json:"connection_life"`
+
 	// Location of zone files with local dns configuration
 	ZoneFiles []string `json:"zone_files"`
 
@@ -25,7 +30,7 @@ type Configuration struct {
 	DnsPort int `json:"dns_port"`
 
 	// List of upstream resolvers, overrides resolv.conf
-	Resolvers []string `json:"resolvers"`
+	Resolvers []Resolver `json:"resolvers"`
 
 	// Port to expose admin API on
 	HttpPort int `json:"http_port"`

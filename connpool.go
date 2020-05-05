@@ -52,8 +52,9 @@ func (c *ConnPool) Add(ce *ConnEntry) (bool, error) {
 	}
 
 	// set a default expiration date
-	if (ce.ExpirationDate == time.Time{}) {
-		ce.ExpirationDate = time.Now().Add(5 * time.Minute)
+	config := GetConfiguration()
+	if (ce.ExpirationDate == time.Time{}) && config.ConnectionLife > 0 {
+		ce.ExpirationDate = time.Now().Add(time.Duration(config.ConnectionLife) * time.Second)
 	}
 
 	if c.MaxConnsPerHost > 0 {

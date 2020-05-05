@@ -7,6 +7,7 @@ import (
 )
 
 type LogLevel int
+type Resolver string
 
 type Server struct {
 	// lookup cache
@@ -18,6 +19,9 @@ type Server struct {
 
 	// connection cache, b/c whynot
 	connPool ConnPool
+
+	// list of resolvers, to be randomly shuffled
+	Resolvers []Resolver
 }
 
 type Lock struct {
