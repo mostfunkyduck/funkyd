@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"github.com/google/go-cmp/cmp"
+	"github.com/miekg/dns"
 	"testing"
+	"time"
 )
 
 func buildPool() *ConnPool {
@@ -125,5 +127,22 @@ func TestConnectionPoolSize(t *testing.T) {
 
 	if pool.Size() != pool.MaxConnsPerHost*pool.MaxConnsPerHost {
 		t.Fatalf("got the wrong size for the pool, expected [%d], got [%d]", pool.MaxConnsPerHost*pool.MaxConnsPerHost, pool.Size())
+	}
+}
+
+func TestExpirationDateAdding(t *testing.T) {
+	pool := buildPool()
+	ce := &ConnEntry{
+		Conn:           &dns.Conn{},
+		Address:        "123",
+		ExpirationDate: time.Now().Add(time.Minute * -1),
+	}
+	added, err := pool.Add(ce)
+	if added {
+		t.Fatalf("added expired cache entry [%v]", ce)
+	}
+
+	if err != nil {
+		t.Fatalf("got error when adding: [%s]", err)
 	}
 }
