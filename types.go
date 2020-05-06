@@ -8,8 +8,11 @@ import (
 )
 
 type LogLevel int
-type Resolver string
-
+type ResolverName string
+type Resolver struct {
+	Name	ResolverName
+	Weight	int
+}
 type Server struct {
 	// lookup cache
 	Cache *RecordCache
@@ -21,11 +24,14 @@ type Server struct {
 	// connection cache, b/c whynot
 	connPool ConnPool
 
-	// list of resolvers, to be randomly shuffled
-	Resolvers []Resolver
 
 	// worker pool semaphore
 	sem	*semaphore.Weighted
+
+	// list of resolvers, to be randomly shuffled
+	Resolvers []*Resolver
+
+	RWLock Lock
 }
 
 type Lock struct {

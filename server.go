@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sort"
 	"crypto/tls"
 	"fmt"
 	"github.com/miekg/dns"
@@ -33,6 +34,14 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 	connEntry, err := s.connPool.Get(address)
 	if err == nil {
 		ReusedConnectionsCounter.WithLabelValues(address).Inc()
+		Logger.Log(NewLogMessage(
+			INFO,
+			LogContext {
+				"what": "connection pool cache hit",
+			  "next": "using stored connection",
+			},
+			"",
+		))
 		return connEntry, nil
 	}
 
@@ -77,13 +86,55 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 //https://www.calhoun.io/how-to-shuffle-arrays-and-slices-in-go/
 func (s *Server) ShuffleResolvers() {
 	r := rand.New(rand.NewSource(time.Now().Unix()))
-	shuffled := make([]Resolver, len(s.Resolvers))
+	shuffled := make([]*Resolver, len(s.Resolvers))
 	perm := r.Perm(len(s.Resolvers))
 	for i, randIndex := range perm {
 		shuffled[i] = s.Resolvers[randIndex]
 	}
 	s.Resolvers = shuffled
 }
+
+// TODO clean this up and put it in its own module or something
+type resolvers []*Resolver
+type ByWeight struct {
+	resolvers
+}
+func (b ByWeight) Len() int {
+	return len(b.resolvers)
+}
+func (b ByWeight) Swap(i, j int) {
+	x := b.resolvers[i]
+	y := b.resolvers[j]
+	b.resolvers[i] = y
+	b.resolvers[j] = x
+}
+
+func (b ByWeight) Less(i, j int) bool {
+	return b.resolvers[i].Weight < b.resolvers[j].Weight
+}
+
+// TODO refactor so that locking uses a regular mutex or something
+func (s *Server) Lock() {
+	s.RWLock.Lock()
+}
+
+func (s *Server) Unlock() {
+	s.RWLock.Unlock()
+}
+
+func (s *Server) RLock() {
+	s.RWLock.RLock()
+}
+
+func (s *Server) RUnlock() {
+	s.RWLock.RUnlock()
+}
+
+// FIXME this is just shit, we need a better way to sort resolvers, probably by a major refactor around how i'm doing concurrency
+func (s *Server) SortResolvers() {
+	sort.Sort(ByWeight{s.Resolvers})
+}
+
 func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
 	RecursiveQueryCounter.Inc()
 	// lifted from example code https://github.com/miekg/dns/blob/master/example_test.go
@@ -92,11 +143,9 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 	m := &dns.Msg{}
 	m.SetQuestion(domain, rrtype)
 	m.RecursionDesired = true
-	// go in random order to spread out load
-	// TODO weight resolvers based on some kind of latency metric
-	s.ShuffleResolvers()
-	for _, host := range s.Resolvers {
-		address := string(host) + ":" + port
+
+	for _, resolver:= range s.Resolvers {
+		address := string(resolver.Name) + ":" + port
 		Logger.Log(NewLogMessage(
 			INFO,
 			LogContext{
@@ -303,7 +352,7 @@ func (s *Server) warmConnections() error {
 	conns := []*ConnEntry{}
 	// go through each resolver,  open the maximum number of connections to each one
 	for _, r := range s.Resolvers {
-		address := fmt.Sprintf("%s:%s", r, "853")
+		address := fmt.Sprintf("%s:%s", r.Name, "853")
 		for i := 0; i < 5; i++ {
 			c, err := s.GetConnection(address)
 			if err != nil {
@@ -348,7 +397,14 @@ func NewServer() (*Server, error) {
 	hostedcache, err := NewCache()
 	// don't init, we don't clean this one
 	ret.HostedCache = hostedcache
-	ret.Resolvers = config.Resolvers
+	resolverNames := config.Resolvers
+	for i, name := range resolverNames {
+		ret.Resolvers = append(ret.Resolvers, &Resolver {
+			Name: name,
+			// start off in order
+			Weight: i,
+		})
+	}
 	if err := ret.warmConnections(); err != nil {
 		return ret, err
 	}

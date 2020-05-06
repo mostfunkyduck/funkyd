@@ -30,7 +30,7 @@ type Configuration struct {
 	DnsPort int `json:"dns_port"`
 
 	// List of upstream resolvers, overrides resolv.conf
-	Resolvers []Resolver `json:"resolvers"`
+	Resolvers []ResolverName `json:"resolvers"`
 
 	// Port to expose admin API on
 	HttpPort int `json:"http_port"`

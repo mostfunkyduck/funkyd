@@ -15,7 +15,7 @@ var (
 		[]string{"destination"},
 	)
 	QueuedQueriesGauge  = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "funkyd_queued_queries_counter",
+		Name: "funkyd_queued_queries_total",
 		Help: "dns queries that have been received, but are waiting on a free worker",
 	})
 	TotalDnsQueriesCounter = promauto.NewCounter(prometheus.CounterOpts{

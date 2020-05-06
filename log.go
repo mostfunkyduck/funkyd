@@ -3,6 +3,7 @@ package main
 // structured logger
 import (
 	"encoding/json"
+	"time"
 	"fmt"
 	"io"
 	"os"
@@ -57,6 +58,7 @@ func (l logger) Log(message logMessage) {
 		return
 	}
 	if message.Level <= l.level {
+		message.Context["when"] = fmt.Sprintf("%s", time.Now())
 		output := parseKeys(message.Context)
 		l.output(output)
 	}
