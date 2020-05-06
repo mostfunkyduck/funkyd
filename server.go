@@ -224,6 +224,8 @@ func logQuery(source string, duration time.Duration, response *dns.Msg) error {
 
 func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	TotalDnsQueriesCounter.Inc()
+	// we got this query, but it isn't getting handled until we get the sem
+	QueuedQueriesGauge.Inc()
 	queryTimer := prometheus.NewTimer(QueryTimer)
 
 	msg := dns.Msg{}
@@ -233,15 +235,8 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg.Authoritative = false
 	msg.RecursionAvailable = true
 
-	config := GetConfiguration()
-	var c int64
-	c = int64(config.ConcurrentQueries)
-	if c == 0 {
-		c = 10
-	}
-	sem := semaphore.NewWeighted(c)
 	ctx := context.TODO()
-	if err := sem.Acquire(ctx, 1); err != nil {
+	if err := s.sem.Acquire(ctx, 1); err != nil {
 		Logger.Log(NewLogMessage(
 			CRITICAL,
 			LogContext{
@@ -254,7 +249,9 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		panic(err)
 	}
 	go func() {
-		defer sem.Release(1)
+		defer s.sem.Release(1)
+		// the query is now in motion, no longer queued
+		QueuedQueriesGauge.Dec()
 		response, source, err := s.RetrieveRecords(domain, r.Question[0].Qtype)
 		if err != nil {
 			Logger.Log(NewLogMessage(
@@ -321,13 +318,25 @@ func (s *Server) warmConnections() error {
 	return nil
 }
 func NewServer() (*Server, error) {
+	config := GetConfiguration()
 	client, err := buildClient()
 	if err != nil {
 		return &Server{}, fmt.Errorf("could not build client [%s]\n", err)
 	}
+
+	// TODO this can prbly be simplified
+	var c int64
+	c = int64(config.ConcurrentQueries)
+	if c == 0 {
+		c = 10
+	}
+
+	sem := semaphore.NewWeighted(c)
+
 	ret := &Server{
 		dnsClient: client,
 		connPool:  InitConnPool(),
+		sem:	sem,
 	}
 	newcache, err := NewCache()
 	if err != nil {
@@ -339,7 +348,7 @@ func NewServer() (*Server, error) {
 	hostedcache, err := NewCache()
 	// don't init, we don't clean this one
 	ret.HostedCache = hostedcache
-	ret.Resolvers = GetConfiguration().Resolvers
+	ret.Resolvers = config.Resolvers
 	if err := ret.warmConnections(); err != nil {
 		return ret, err
 	}

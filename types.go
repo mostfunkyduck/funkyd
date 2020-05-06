@@ -1,6 +1,7 @@
 package main
 
 import (
+	"golang.org/x/sync/semaphore"
 	"github.com/miekg/dns"
 	"sync"
 	"time"
@@ -22,6 +23,9 @@ type Server struct {
 
 	// list of resolvers, to be randomly shuffled
 	Resolvers []Resolver
+
+	// worker pool semaphore
+	sem	*semaphore.Weighted
 }
 
 type Lock struct {
