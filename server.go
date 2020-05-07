@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"sort"
 	"crypto/tls"
 	"fmt"
 	"github.com/miekg/dns"
@@ -94,50 +93,10 @@ func (s *Server) ShuffleResolvers() {
 	s.Resolvers = shuffled
 }
 
-// TODO clean this up and put it in its own module or something
-type resolvers []*Resolver
-type ByWeight struct {
-	resolvers
-}
-func (b ByWeight) Len() int {
-	return len(b.resolvers)
-}
-func (b ByWeight) Swap(i, j int) {
-	x := b.resolvers[i]
-	y := b.resolvers[j]
-	b.resolvers[i] = y
-	b.resolvers[j] = x
-}
-
-func (b ByWeight) Less(i, j int) bool {
-	return b.resolvers[i].Weight < b.resolvers[j].Weight
-}
-
-// TODO refactor so that locking uses a regular mutex or something
-func (s *Server) Lock() {
-	s.RWLock.Lock()
-}
-
-func (s *Server) Unlock() {
-	s.RWLock.Unlock()
-}
-
-func (s *Server) RLock() {
-	s.RWLock.RLock()
-}
-
-func (s *Server) RUnlock() {
-	s.RWLock.RUnlock()
-}
-
-// FIXME this is just shit, we need a better way to sort resolvers, probably by a major refactor around how i'm doing concurrency
-func (s *Server) SortResolvers() {
-	sort.Sort(ByWeight{s.Resolvers})
-}
-
 func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
 	RecursiveQueryCounter.Inc()
-	// lifted from example code https://github.com/miekg/dns/blob/master/example_test.go
+
+	// based on example code https://github.com/miekg/dns/blob/master/example_test.go
 	port := "853"
 
 	m := &dns.Msg{}
@@ -346,26 +305,6 @@ func buildClient() (*dns.Client, error) {
 	return cl, nil
 }
 
-// creates some connections on startup
-// so that clients don't have to wait for handshakes
-func (s *Server) warmConnections() error {
-	conns := []*ConnEntry{}
-	// go through each resolver,  open the maximum number of connections to each one
-	for _, r := range s.Resolvers {
-		address := fmt.Sprintf("%s:%s", r.Name, "853")
-		for i := 0; i < 5; i++ {
-			c, err := s.GetConnection(address)
-			if err != nil {
-				return fmt.Errorf("could not initiate connection to [%s]: %s", address, err)
-			}
-			conns = append(conns, c)
-		}
-	}
-	for _, v := range conns {
-		s.connPool.Add(v)
-	}
-	return nil
-}
 func NewServer() (*Server, error) {
 	config := GetConfiguration()
 	client, err := buildClient()
@@ -404,9 +343,6 @@ func NewServer() (*Server, error) {
 			// start off in order
 			Weight: i,
 		})
-	}
-	if err := ret.warmConnections(); err != nil {
-		return ret, err
 	}
 	return ret, nil
 }
