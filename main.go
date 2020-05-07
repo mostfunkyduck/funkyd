@@ -12,6 +12,7 @@ import (
 
 var (
 	confFile = flag.String("conf", "", "location of the funkyd configuration file")
+  cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 )
 
 func validateConfFile() error {
@@ -65,9 +66,7 @@ func main() {
 		for _, response := range responses {
 			log.Printf("adding [%v]\n", response)
 			// TODO one function to make the keys, please
-			server.HostedCache.Lock()
 			server.HostedCache.Add(response)
-			server.HostedCache.Unlock()
 		}
 	}
 
