@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	confFile = flag.String("conf", "", "location of the funkyd configuration file")
-  cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+	confFile   = flag.String("conf", "", "location of the funkyd configuration file")
+	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 )
 
 func validateConfFile() error {
@@ -47,7 +47,7 @@ func main() {
 	}
 	InitLoggers()
 	InitApi()
-	server, err := NewServer()
+	server, err := NewServer(nil)
 	if err != nil {
 		log.Fatalf("could not initialize new server: %s\n", err)
 	}

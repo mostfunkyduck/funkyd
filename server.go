@@ -35,20 +35,29 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 		ReusedConnectionsCounter.WithLabelValues(address).Inc()
 		Logger.Log(NewLogMessage(
 			INFO,
-			LogContext {
+			LogContext{
 				"what": "connection pool cache hit",
-			  "next": "using stored connection",
+				"next": "using stored connection",
 			},
 			"",
 		))
 		return connEntry, nil
 	}
+	Logger.Log(NewLogMessage(
+		INFO,
+		LogContext{
+			"what": "connection pool cache miss",
+		},
+		"",
+	))
+	return &ConnEntry{}, err
+}
 
+func (s *Server) MakeConnection(address string) (*ConnEntry, error) {
 	Logger.Log(NewLogMessage(
 		INFO,
 		LogContext{
 			"what": fmt.Sprintf("creating new connection to %s", address),
-			"why":  fmt.Sprintf("error [%s]", err),
 			"next": "dialing",
 		},
 		"",
@@ -103,7 +112,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 	m.SetQuestion(domain, rrtype)
 	m.RecursionDesired = true
 
-	for _, resolver:= range s.Resolvers {
+	for _, resolver := range s.Resolvers {
 		address := string(resolver.Name) + ":" + port
 		Logger.Log(NewLogMessage(
 			INFO,
@@ -114,16 +123,28 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 			"",
 		))
 		ce, err := s.GetConnection(address)
+
 		if err != nil {
 			Logger.Log(NewLogMessage(
 				ERROR,
 				LogContext{
-					"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
-					"next": "continuing to next resolver",
+					"what": fmt.Sprintf("cache miss connecting to [%s]: [%s]", address, err),
+					"next": "creating new connection",
 				},
 				"",
 			))
-			continue
+			ce, err = s.MakeConnection(address)
+			if err != nil {
+				Logger.Log(NewLogMessage(
+					ERROR,
+					LogContext{
+						"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
+						"next": "continuing to next resolver",
+					},
+					"",
+				))
+				continue
+			}
 		}
 		exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
 			ExchangeTimer.WithLabelValues(address).Observe(v)
@@ -285,7 +306,7 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}()
 }
 
-func buildClient() (*dns.Client, error) {
+func BuildClient() (*dns.Client, error) {
 	config := GetConfiguration()
 	cl := &dns.Client{
 		SingleInflight: true,
@@ -305,11 +326,15 @@ func buildClient() (*dns.Client, error) {
 	return cl, nil
 }
 
-func NewServer() (*Server, error) {
+func NewServer(cl Client) (*Server, error) {
 	config := GetConfiguration()
-	client, err := buildClient()
-	if err != nil {
-		return &Server{}, fmt.Errorf("could not build client [%s]\n", err)
+	client := cl
+	if client == nil {
+		var err error
+		client, err = BuildClient()
+		if err != nil {
+			return &Server{}, fmt.Errorf("could not build client [%s]\n", err)
+		}
 	}
 
 	// TODO this can prbly be simplified
@@ -324,7 +349,7 @@ func NewServer() (*Server, error) {
 	ret := &Server{
 		dnsClient: client,
 		connPool:  InitConnPool(),
-		sem:	sem,
+		sem:       sem,
 	}
 	newcache, err := NewCache()
 	if err != nil {
@@ -338,7 +363,7 @@ func NewServer() (*Server, error) {
 	ret.HostedCache = hostedcache
 	resolverNames := config.Resolvers
 	for i, name := range resolverNames {
-		ret.Resolvers = append(ret.Resolvers, &Resolver {
+		ret.Resolvers = append(ret.Resolvers, &Resolver{
 			Name: name,
 			// start off in order
 			Weight: i,

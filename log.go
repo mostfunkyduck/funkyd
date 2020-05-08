@@ -3,10 +3,10 @@ package main
 // structured logger
 import (
 	"encoding/json"
-	"time"
 	"fmt"
 	"io"
 	"os"
+	"time"
 )
 
 const (

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"golang.org/x/sync/semaphore"
 	"github.com/miekg/dns"
+	"golang.org/x/sync/semaphore"
 	"sync"
 	"time"
 )
@@ -10,23 +10,29 @@ import (
 type LogLevel int
 type ResolverName string
 type Resolver struct {
-	Name	ResolverName
-	Weight	int
+	Name   ResolverName
+	Weight int
 }
+
+// making this to support dependency injection into the server
+type Client interface {
+	Dial(address string) (conn *dns.Conn, err error)
+	ExchangeWithConn(s *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error)
+}
+
 type Server struct {
 	// lookup cache
 	Cache *RecordCache
 	// cache of records hosted by this server
 	HostedCache *RecordCache
 	// client for recursive lookups
-	dnsClient *dns.Client
+	dnsClient Client
 
 	// connection cache, b/c whynot
 	connPool ConnPool
 
-
 	// worker pool semaphore
-	sem	*semaphore.Weighted
+	sem *semaphore.Weighted
 
 	// list of resolvers, to be randomly shuffled
 	Resolvers []*Resolver
