@@ -23,9 +23,17 @@ type Client interface {
 	ExchangeWithConn(s *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error)
 }
 
+// this abstraction helps us test the entire servedns path
+type ResponseWriter interface {
+	WriteMsg(*dns.Msg) error
+}
+
 type Server interface {
 	// Needs to handle DNS queries
 	dns.Handler
+
+	// Internal function to implement ServeDNS, this allows testing
+	HandleDNS(w ResponseWriter, m *dns.Msg)
 
 	// Retrieves a new connection to an upstream
 	GetConnection(address string) (*ConnEntry, error)
@@ -34,7 +42,7 @@ type Server interface {
 	MakeConnection(address string) (*ConnEntry, error)
 
 	// Retrieves a list of resolver names to connect to
-	GetResolvers() []ResolverName
+	GetResolverNames() []ResolverName
 
 	// Runs a recursive query for a given record and record type
 	RecursiveQuery(domain string, rrtype uint16) (Response, string, error)
@@ -46,6 +54,8 @@ type Server interface {
 	GetDnsClient() Client
 
 	GetHostedCache() *RecordCache
+
+	SetResolvers([]*Resolver)
 }
 
 type MutexServer struct {
@@ -57,11 +67,11 @@ type MutexServer struct {
 	// connection cache, b/c whynot
 	connPool ConnPool
 
-	// worker pool semaphore
-	sem *semaphore.Weighted
-
 	// list of resolvers, to be randomly shuffled
 	Resolvers []*Resolver
+
+	// worker pool semaphore
+	sem *semaphore.Weighted
 
 	// client for recursive lookups
 	dnsClient Client

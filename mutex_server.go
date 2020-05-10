@@ -68,19 +68,22 @@ func (s *MutexServer) MakeConnection(address string) (*ConnEntry, error) {
 		LogContext{
 			"what": fmt.Sprintf("connection to %s successful", address),
 		},
-		fmt.Sprintf("%v\n", conn),
+		"",
 	))
 
 	return &ConnEntry{Conn: conn, Address: address}, nil
 }
 
-func (s *MutexServer) GetResolvers() []ResolverName {
+func (s *MutexServer) SetResolvers(r []*Resolver) {
+	s.Resolvers = r
+}
+
+func (s *MutexServer) GetResolverNames() []ResolverName {
 	var resolvers []ResolverName
 	for _, v := range s.Resolvers {
 		resolvers = append(resolvers, v.Name)
 	}
 
-	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(resolvers), func(i, j int) {
 		resolvers[i], resolvers[j] = resolvers[j], resolvers[i]
 	})
@@ -93,10 +96,7 @@ func (s *MutexServer) attemptExchange(address string, m *dns.Msg) (ce *ConnEntry
 	if err != nil {
 		Logger.Log(NewLogMessage(
 			INFO,
-			LogContext{
-				"what": fmt.Sprintf("cache miss connecting to [%s]: [%s]", address, err),
-				"next": "creating new connection",
-			},
+			LogContext{"what": fmt.Sprintf("cache miss connecting to [%s]: [%s]", address, err), "next": "creating new connection"},
 			"",
 		))
 		ce, err = s.MakeConnection(address)
@@ -144,7 +144,7 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 	m.SetQuestion(domain, rrtype)
 	m.RecursionDesired = true
 
-	for _, resolver := range s.GetResolvers() {
+	for _, resolver := range s.GetResolverNames() {
 		address := string(resolver) + ":" + port
 
 		Logger.Log(NewLogMessage(
@@ -168,7 +168,10 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 				break
 			}
 		}
-
+		if !success {
+			// move on to the next resolver
+			continue
+		}
 		added, err := s.connPool.Add(ce)
 		if err != nil {
 			Logger.Log(NewLogMessage(
@@ -178,7 +181,7 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 					"why":  fmt.Sprintf("%s", err),
 					"next": "continuing without cache, disregarding error",
 				},
-				fmt.Sprintf("server: [%v]", s),
+				"",
 			))
 		}
 
@@ -190,7 +193,7 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 					"why":  "connection pool was full",
 					"next": "closing connection",
 				},
-				fmt.Sprintf("connEntry: [%v]", ce),
+				"",
 			))
 			ce.Conn.Close()
 		}
@@ -232,6 +235,10 @@ func (s *MutexServer) RetrieveRecords(domain string, rrtype uint16) (Response, s
 }
 
 func (s *MutexServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	s.HandleDNS(w, r)
+}
+
+func (s *MutexServer) HandleDNS(w ResponseWriter, r *dns.Msg) {
 	TotalDnsQueriesCounter.Inc()
 	// we got this query, but it isn't getting handled until we get the sem
 	QueuedQueriesGauge.Inc()
@@ -266,9 +273,9 @@ func (s *MutexServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			Logger.Log(NewLogMessage(
 				ERROR,
 				LogContext{
-					"what": fmt.Sprintf("error retrieving record for domain [%s]", domain),
-					"why":  fmt.Sprintf("%s", err),
-					"next": "returning SERVFAIL",
+					"what":  fmt.Sprintf("error retrieving record for domain [%s]", domain),
+					"error": fmt.Sprintf("%s", err),
+					"next":  "returning SERVFAIL",
 				},
 				fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response),
 			))
@@ -284,6 +291,7 @@ func (s *MutexServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		duration := queryTimer.ObserveDuration()
 		logQuery(source, duration, reply)
 	}()
+	return
 }
 
 func (s *MutexServer) GetDnsClient() Client {
@@ -295,6 +303,9 @@ func (s *MutexServer) GetHostedCache() *RecordCache {
 }
 
 func NewMutexServer(cl Client) (Server, error) {
+	// seed the random generator once for resolver shuffling
+	rand.Seed(time.Now().UnixNano())
+
 	config := GetConfiguration()
 	client := cl
 	if client == nil {
