@@ -35,6 +35,30 @@ func validateFlags() error {
 	return nil
 }
 
+func runBlackholeServer() error {
+	config := GetConfiguration()
+	switch config.ListenProtocol {
+	case "tcp-tls":
+		if (config.TlsConfig == tlsConfig{}) {
+			log.Fatalf("attempted to listen for TLS connections, but no tls config was defined")
+		}
+		if config.TlsConfig.CertificateFile == "" {
+			log.Fatalf("invalid certificate file in configuration")
+		}
+
+		if config.TlsConfig.PrivateKeyFile == "" {
+			log.Fatalf("invalid private key in configuration")
+		}
+		err := dns.ListenAndServeTLS(":"+strconv.Itoa(config.DnsPort), config.TlsConfig.CertificateFile, config.TlsConfig.PrivateKeyFile, &BlackholeServer{})
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported protocol [%s]", config.ListenProtocol)
+	}
+	return fmt.Errorf("could not start blackhole server")
+}
+
 func main() {
 	flag.Parse()
 	validateFlags()
@@ -82,26 +106,12 @@ func main() {
 	srv.Handler = server
 	if config.Blackhole {
 		// PSYCH!
-		switch protocol {
-		case "tcp-tls":
-			if (config.TlsConfig == tlsConfig{}) {
-				log.Fatalf("attempted to listen for TLS connections, but no tls config was defined")
-			}
-			if config.TlsConfig.CertificateFile == "" {
-				log.Fatalf("invalid certificate file in configuration")
-			}
-
-			if config.TlsConfig.PrivateKeyFile == "" {
-				log.Fatalf("invalid private key in configuration")
-			}
-			err := dns.ListenAndServeTLS(":"+strconv.Itoa(config.DnsPort), config.TlsConfig.CertificateFile, config.TlsConfig.PrivateKeyFile, &BlackholeServer{})
-			if err != nil {
-				log.Fatalf("failed to listen on TLS: %s", err)
-			}
-		default:
-			log.Fatalf("could not start blackhole server")
+		err := runBlackholeServer()
+		if err != nil {
+			log.Fatalf("Failed to run blackhole server: %s", err)
 		}
 	}
+
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("Failed to set %s listener %s\n", protocol, err.Error())
 	}
