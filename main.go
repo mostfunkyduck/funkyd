@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"github.com/miekg/dns"
@@ -35,7 +36,7 @@ func validateFlags() error {
 	return nil
 }
 
-func runBlackholeServer() error {
+func runBlackholeServer(server *dns.Server) error {
 	config := GetConfiguration()
 	switch config.ListenProtocol {
 	case "tcp-tls":
@@ -49,14 +50,19 @@ func runBlackholeServer() error {
 		if config.TlsConfig.PrivateKeyFile == "" {
 			log.Fatalf("invalid private key in configuration")
 		}
-		err := dns.ListenAndServeTLS(":"+strconv.Itoa(config.DnsPort), config.TlsConfig.CertificateFile, config.TlsConfig.PrivateKeyFile, &BlackholeServer{})
+
+		cert, err := tls.LoadX509KeyPair(config.TlsConfig.CertificateFile, config.TlsConfig.PrivateKeyFile)
 		if err != nil {
-			return err
+			log.Fatalf("could not load tls files")
 		}
+
+		server.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+		return server.ListenAndServe()
 	default:
 		return fmt.Errorf("unsupported protocol [%s]", config.ListenProtocol)
 	}
-	return fmt.Errorf("could not start blackhole server")
 }
 
 func main() {
@@ -102,11 +108,11 @@ func main() {
 	if protocol == "" {
 		protocol = "udp"
 	}
-	srv := &dns.Server{Addr: ":" + strconv.Itoa(config.DnsPort), Net: protocol}
+	srv := &dns.Server{Addr: ":" + strconv.Itoa(config.DnsPort), Net: protocol, MaxTCPQueries: -1, ReusePort: true}
 	srv.Handler = server
 	if config.Blackhole {
 		// PSYCH!
-		err := runBlackholeServer()
+		err := runBlackholeServer(srv)
 		if err != nil {
 			log.Fatalf("Failed to run blackhole server: %s", err)
 		}
