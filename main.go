@@ -47,7 +47,7 @@ func main() {
 	}
 	InitLoggers()
 	InitApi()
-	server, err := NewServer(nil)
+	server, err := NewMutexServer(nil)
 	if err != nil {
 		log.Fatalf("could not initialize new server: %s\n", err)
 	}
@@ -66,7 +66,7 @@ func main() {
 		for _, response := range responses {
 			log.Printf("adding [%v]\n", response)
 			// TODO one function to make the keys, please
-			server.HostedCache.Add(response)
+			server.GetHostedCache().Add(response)
 		}
 	}
 

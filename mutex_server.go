@@ -1,35 +1,17 @@
 package main
 
+// The mutex server uses traditional concurrency controls
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/semaphore"
 	"math/rand"
-	"strings"
 	"time"
 )
 
-func sendServfail(w dns.ResponseWriter, duration time.Duration, r *dns.Msg) {
-	LocalServfailsCounter.Inc()
-	m := &dns.Msg{}
-	m.SetRcode(r, dns.RcodeServerFailure)
-	w.WriteMsg(m)
-	logQuery("servfail", duration, m)
-}
-
-func (server *Server) processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
-	return Response{
-		Entry:        r,
-		CreationTime: time.Now(),
-		Key:          domain,
-		Qtype:        rrtype,
-	}, nil
-}
-
-func (s *Server) GetConnection(address string) (*ConnEntry, error) {
+func (s *MutexServer) GetConnection(address string) (*ConnEntry, error) {
 	connEntry, err := s.connPool.Get(address)
 	if err == nil {
 		ReusedConnectionsCounter.WithLabelValues(address).Inc()
@@ -53,7 +35,7 @@ func (s *Server) GetConnection(address string) (*ConnEntry, error) {
 	return &ConnEntry{}, err
 }
 
-func (s *Server) MakeConnection(address string) (*ConnEntry, error) {
+func (s *MutexServer) MakeConnection(address string) (*ConnEntry, error) {
 	Logger.Log(NewLogMessage(
 		INFO,
 		LogContext{
@@ -91,7 +73,7 @@ func (s *Server) MakeConnection(address string) (*ConnEntry, error) {
 	return &ConnEntry{Conn: conn, Address: address}, nil
 }
 
-func (s *Server) GetResolvers() []ResolverName {
+func (s *MutexServer) GetResolvers() []ResolverName {
 	var resolvers []ResolverName
 	for _, v := range s.Resolvers {
 		resolvers = append(resolvers, v.Name)
@@ -103,7 +85,8 @@ func (s *Server) GetResolvers() []ResolverName {
 	})
 	return resolvers
 }
-func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
+
+func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
 	RecursiveQueryCounter.Inc()
 
 	// based on example code https://github.com/miekg/dns/blob/master/example_test.go
@@ -195,7 +178,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 		}
 
 		// this one worked, proceeding
-		reply, err := s.processResults(*r, domain, rrtype)
+		reply, err := processResults(*r, domain, rrtype)
 		return reply, ce.Address, err
 	}
 	// if we went through each server and couldn't find at least one result, bail with the full error string
@@ -204,17 +187,17 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 
 // retrieves the record for that domain, either from cache or from
 // a recursive query
-func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, string, error) {
+func (s *MutexServer) RetrieveRecords(domain string, rrtype uint16) (Response, string, error) {
 	// First: check caches
 
-	cached_response, ok := server.Cache.Get(domain, rrtype)
+	cached_response, ok := s.Cache.Get(domain, rrtype)
 	if ok {
 		CacheHitsCounter.Inc()
 		return cached_response, "cache", nil
 	}
 
 	// Now check the hosted cache (stuff in our zone files that we're taking care of)
-	cached_response, ok = server.HostedCache.Get(domain, rrtype)
+	cached_response, ok = s.GetHostedCache().Get(domain, rrtype)
 	if ok {
 		HostedCacheHitsCounter.Inc()
 		return cached_response, "cache", nil
@@ -222,37 +205,15 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, s
 
 	// Next , query upstream if there's no cache
 	// TODO only do if requested b/c thats what the spec says IIRC
-	response, source, err := server.RecursiveQuery(domain, rrtype)
+	response, source, err := s.RecursiveQuery(domain, rrtype)
 	if err != nil {
 		return response, "", fmt.Errorf("error running recursive query on domain [%s]: %s\n", domain, err)
 	}
-	server.Cache.Add(response)
+	s.Cache.Add(response)
 	return response, source, nil
 }
-func logQuery(source string, duration time.Duration, response *dns.Msg) error {
-	var queryContext LogContext
-	for i, _ := range response.Question {
-		for j, _ := range response.Answer {
-			answerBits := strings.Split(response.Answer[j].String(), " ")
-			queryContext = LogContext{
-				"name":         response.Question[i].Name,
-				"type":         dns.Type(response.Question[i].Qtype).String(),
-				"opcode":       dns.OpcodeToString[response.Opcode],
-				"answer":       answerBits[len(answerBits)-1],
-				"answerSource": fmt.Sprintf("[%s]", source),
-				"duration":     fmt.Sprintf("%s", duration),
-			}
-			QueryLogger.Log(NewLogMessage(
-				CRITICAL,
-				queryContext,
-				"",
-			))
-		}
-	}
-	return nil
-}
 
-func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+func (s *MutexServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	TotalDnsQueriesCounter.Inc()
 	// we got this query, but it isn't getting handled until we get the sem
 	QueuedQueriesGauge.Inc()
@@ -307,34 +268,22 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}()
 }
 
-func BuildClient() (*dns.Client, error) {
-	config := GetConfiguration()
-	cl := &dns.Client{
-		SingleInflight: true,
-		Timeout:        config.Timeout * time.Second,
-		Net:            "tcp-tls",
-		TLSConfig:      &tls.Config{},
-	}
-	Logger.Log(NewLogMessage(
-		INFO,
-		LogContext{
-			"what": "instantiated new dns client in TLS mode",
-			"why":  "",
-			"next": "returning for use",
-		},
-		fmt.Sprintf("%v\n", cl),
-	))
-	return cl, nil
+func (s *MutexServer) GetDnsClient() Client {
+	return s.dnsClient
 }
 
-func NewServer(cl Client) (*Server, error) {
+func (s *MutexServer) GetHostedCache() *RecordCache {
+	return s.HostedCache
+}
+
+func NewMutexServer(cl Client) (Server, error) {
 	config := GetConfiguration()
 	client := cl
 	if client == nil {
 		var err error
 		client, err = BuildClient()
 		if err != nil {
-			return &Server{}, fmt.Errorf("could not build client [%s]\n", err)
+			return &MutexServer{}, fmt.Errorf("could not build client [%s]\n", err)
 		}
 	}
 
@@ -347,7 +296,7 @@ func NewServer(cl Client) (*Server, error) {
 
 	sem := semaphore.NewWeighted(c)
 
-	ret := &Server{
+	ret := &MutexServer{
 		dnsClient: client,
 		connPool:  InitConnPool(),
 		sem:       sem,

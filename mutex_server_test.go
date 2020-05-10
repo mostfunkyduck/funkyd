@@ -42,12 +42,12 @@ func BenchmarkConnection(b *testing.B) {
 	testClient := new(MockDnsClient)
 	testConn := &dns.Conn{}
 	testClient.On("Dial", mock.Anything).Return(testConn, nil)
-	server, err := NewServer(testClient)
+	server, err := NewMutexServer(testClient)
 	if err != nil {
 		b.Fatalf("could no build server: [%s]", err)
 	}
 
-	if server.dnsClient != testClient {
+	if server.GetDnsClient() != testClient {
 		b.Fatalf("got the wrong client when initializing the server")
 	}
 
@@ -77,16 +77,16 @@ func BenchmarkConnection(b *testing.B) {
 
 }
 
-func buildTestResources(b *testing.B) (*Server, *MockDnsClient, *dns.Conn) {
+func buildTestResources(b *testing.B) (Server, *MockDnsClient, *dns.Conn) {
 	testClient := new(MockDnsClient)
 	testConn := &dns.Conn{}
 	testClient.On("Dial", mock.Anything).Return(testConn, nil)
-	server, err := NewServer(testClient)
+	server, err := NewMutexServer(testClient)
 	if err != nil {
 		b.Fatalf("could no build server: [%s]", err)
 	}
 
-	if server.dnsClient != testClient {
+	if server.GetDnsClient() != testClient {
 		b.Fatalf("got the wrong client when initializing the server")
 	}
 
@@ -136,7 +136,7 @@ func BenchmarkCache(b *testing.B) {
 }
 
 func TestGetResolvers(t *testing.T) {
-	server := &Server{
+	server := &MutexServer{
 		Resolvers: []*Resolver{
 			&Resolver{
 				Name: "a.b.c.d.e.f.g",

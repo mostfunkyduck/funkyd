@@ -16,17 +16,43 @@ type Resolver struct {
 
 // making this to support dependency injection into the server
 type Client interface {
+	// Make a new connection
 	Dial(address string) (conn *dns.Conn, err error)
+
+	// Run DNS queries
 	ExchangeWithConn(s *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error)
 }
 
-type Server struct {
+type Server interface {
+	// Retrieves a new connection to an upstream
+	GetConnection(address string) (*ConnEntry, error)
+
+	// Makes a new connection to an upstream
+	MakeConnection(address string) (*ConnEntry, error)
+
+	// Retrieves a list of resolver names to connect to
+	GetResolvers() []ResolverName
+
+	// Runs a recursive query for a given record and record type
+	RecursiveQuery(domain string, rrtype uint16) (Response, string, error)
+
+	// Retrieves records from cache or an upstream
+	RetrieveRecords(domain string, rrtype uint16) (Response, string, error)
+
+	// Provides a handler function to server dns queries
+	ServeDNS(w dns.ResponseWriter, r *dns.Msg)
+
+	// Retrieve the server's outbound client
+	GetDnsClient() Client
+
+	GetHostedCache() *RecordCache
+}
+
+type MutexServer struct {
 	// lookup cache
 	Cache *RecordCache
 	// cache of records hosted by this server
 	HostedCache *RecordCache
-	// client for recursive lookups
-	dnsClient Client
 
 	// connection cache, b/c whynot
 	connPool ConnPool
@@ -36,6 +62,9 @@ type Server struct {
 
 	// list of resolvers, to be randomly shuffled
 	Resolvers []*Resolver
+
+	// client for recursive lookups
+	dnsClient Client
 
 	RWLock Lock
 }
