@@ -24,6 +24,9 @@ type Client interface {
 }
 
 type Server interface {
+	// Needs to handle DNS queries
+	dns.Handler
+
 	// Retrieves a new connection to an upstream
 	GetConnection(address string) (*ConnEntry, error)
 
@@ -38,9 +41,6 @@ type Server interface {
 
 	// Retrieves records from cache or an upstream
 	RetrieveRecords(domain string, rrtype uint16) (Response, string, error)
-
-	// Provides a handler function to server dns queries
-	ServeDNS(w dns.ResponseWriter, r *dns.Msg)
 
 	// Retrieve the server's outbound client
 	GetDnsClient() Client
