@@ -150,7 +150,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 			ExchangeTimer.WithLabelValues(address).Observe(v)
 		}),
 		)
-		r, _, err := s.dnsClient.ExchangeWithConn(m, ce.Conn)
+		r, _, err := s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
 		exchangeTimer.ObserveDuration()
 		if err != nil {
 			ce.Conn.Close()

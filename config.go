@@ -48,15 +48,17 @@ type Configuration struct {
 	QueryLog logConfig `json:"query_log"`
 }
 
-var configuration Configuration
+// this is a pointer so that tests can set variables easily
+// it is initialized here for the same reason
+var configuration = &Configuration{}
 
 func InitConfiguration(configpath string) error {
 	file, _ := os.Open(configpath)
 	defer file.Close()
 	decoder := json.NewDecoder(file)
 	decoder.DisallowUnknownFields()
-	configuration = Configuration{}
-	err := decoder.Decode(&configuration)
+	configuration = &Configuration{}
+	err := decoder.Decode(configuration)
 	if err != nil {
 		return fmt.Errorf("error while loading configuration from JSON: %s\n", err)
 	}
@@ -69,6 +71,6 @@ func InitConfiguration(configpath string) error {
 	return nil
 }
 
-func GetConfiguration() Configuration {
+func GetConfiguration() *Configuration {
 	return configuration
 }

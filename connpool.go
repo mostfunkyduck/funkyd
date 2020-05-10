@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/miekg/dns"
 	"time"
 )
 
@@ -13,8 +12,11 @@ type ConnPool struct {
 	MaxConnsPerHost int
 }
 
+type CachedConn interface {
+	Close() error
+}
 type ConnEntry struct {
-	Conn           *dns.Conn
+	Conn           CachedConn
 	Address        string
 	ExpirationDate time.Time
 }
@@ -60,7 +62,7 @@ func (c *ConnPool) Add(ce *ConnEntry) (bool, error) {
 	if c.MaxConnsPerHost > 0 {
 		if _, ok := c.cache[ce.Address]; ok {
 			if len(c.cache[ce.Address]) >= c.MaxConnsPerHost {
-				return false, nil
+				return false, fmt.Errorf("connection pool for host [%s] is full", ce.Address)
 			}
 			c.cache[ce.Address] = append(c.cache[ce.Address], ce)
 		} else {

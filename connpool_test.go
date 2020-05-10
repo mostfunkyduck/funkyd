@@ -4,10 +4,19 @@ import (
 	"fmt"
 	"github.com/google/go-cmp/cmp"
 	"github.com/miekg/dns"
+	"github.com/stretchr/testify/mock"
 	"testing"
 	"time"
 )
 
+type MockConn struct {
+	mock.Mock
+}
+
+func (m *MockConn) Close() error {
+	ret := m.Called()
+	return ret.Error(0)
+}
 func buildPool() *ConnPool {
 	// MAYBE make this a central function
 	return &ConnPool{cache: make(map[string][]*ConnEntry), MaxConnsPerHost: 1}
@@ -130,19 +139,91 @@ func TestConnectionPoolSize(t *testing.T) {
 	}
 }
 
-func TestExpirationDateAdding(t *testing.T) {
+func TestExpirationDateDefault(t *testing.T) {
 	pool := buildPool()
 	ce := &ConnEntry{
-		Conn:           &dns.Conn{},
-		Address:        "123",
-		ExpirationDate: time.Now().Add(time.Minute * -1),
+		Conn:    &dns.Conn{},
+		Address: "123",
 	}
+	GetConfiguration().ConnectionLife = 1
 	added, err := pool.Add(ce)
-	if added {
-		t.Fatalf("added expired cache entry [%v]", ce)
+	if !added {
+		t.Fatalf("pool didn't add valid connection [%v]", ce)
 	}
 
 	if err != nil {
 		t.Fatalf("got error when adding: [%s]", err)
+	}
+
+	if (ce.ExpirationDate == time.Time{}) {
+		t.Fatalf("default expiration date wasn't set on [%v]", ce)
+	}
+}
+
+func TestExpirationDateSet(t *testing.T) {
+	pool := buildPool()
+	ce := &ConnEntry{
+		Conn:           &dns.Conn{},
+		Address:        "123",
+		ExpirationDate: time.Now().Add(time.Duration(12345) * time.Minute),
+	}
+
+	added, err := pool.Add(ce)
+	if !added {
+		t.Fatalf("pool didn't add valid connection [%v]", ce)
+	}
+
+	if err != nil {
+		t.Fatalf("got error when adding: [%s]", err)
+	}
+}
+
+// tests that expired connections are discarded upon retrieval
+func TestRetrieveExpired(t *testing.T) {
+
+	pool := buildPool()
+	pool.MaxConnsPerHost = 100
+	ce := []*ConnEntry{
+		&ConnEntry{
+			Conn:    &MockConn{},
+			Address: "123",
+		},
+		&ConnEntry{
+			Conn:    &MockConn{},
+			Address: "123",
+		},
+	}
+
+	ce[0].Conn.(*MockConn).On("Close").Return(nil)
+	for i, each := range ce {
+		added, err := pool.Add(each)
+		if err != nil {
+			t.Fatalf("error occurred while adding conn %d [%v] to pool [%v]: %s", i, ce, pool, err)
+		}
+
+		if !added {
+			t.Fatalf("failed to add valid connection %d [%v] to pool [%v]", i, pool, ce)
+		}
+	}
+
+	// put this way in the past
+	ce[0].ExpirationDate = time.Now().Add(time.Duration(-100) * time.Hour)
+	entry, err := pool.Get("123")
+	if entry != ce[1] {
+		t.Fatalf("got expired entry [%v] from pool [%v]", entry, pool)
+	}
+
+	if err != nil {
+		t.Fatalf("got error on retrieval of good entry [%v] from pool [%v]: %s", entry, pool, err)
+	}
+
+	if r := ce[0].Conn.(*MockConn).AssertNumberOfCalls(t, "Close", 1); !r {
+		t.Fatalf("connection was not closed when entry [%v] expired from pool [%v]", ce, pool)
+	}
+
+	// now make sure that the connection isn't just hiding in the pool
+	entry, err = pool.Get("123")
+	if err == nil {
+		t.Fatalf("pool [%v] returned connection [%v] when it should have been empty", pool, entry)
 	}
 }
