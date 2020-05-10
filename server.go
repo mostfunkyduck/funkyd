@@ -62,7 +62,6 @@ func BuildClient() (*dns.Client, error) {
 		INFO,
 		LogContext{
 			"what": "instantiated new dns client in TLS mode",
-			"why":  "",
 			"next": "returning for use",
 		},
 		"",

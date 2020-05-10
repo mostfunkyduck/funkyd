@@ -1,0 +1,29 @@
+---
+# test rig
+version: "3.3"
+services:
+  blackhole:
+    image: funkyd/funkyd
+    networks:
+      testnetwork:
+        ipv4_address: 172.16.0.69
+    volumes:
+      - './test/funkyd:/etc/funkyd'
+    build: .
+    entrypoint: ["/app/funkyd", "-conf", "/etc/funkyd/blackhole.conf"]
+
+  testbox:
+    entrypoint: ["/app/funkyd", "-conf", "/etc/funkyd/test.conf"]
+    image: funkyd/funkyd
+    networks: 
+      testnetwork:
+        ipv4_address: 172.16.0.70
+    volumes:
+      - './test/funkyd:/etc/funkyd'
+    build: .
+networks:
+  testnetwork:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.16.0.0/16

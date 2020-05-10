@@ -36,10 +36,11 @@ func validateFlags() error {
 	return nil
 }
 
-func runBlackholeServer(server *dns.Server) error {
+func runBlackholeServer(srv *dns.Server) error {
 	config := GetConfiguration()
 	switch config.ListenProtocol {
 	case "tcp-tls":
+		log.Printf("starting tls blackhole server")
 		if (config.TlsConfig == tlsConfig{}) {
 			log.Fatalf("attempted to listen for TLS connections, but no tls config was defined")
 		}
@@ -56,10 +57,11 @@ func runBlackholeServer(server *dns.Server) error {
 			log.Fatalf("could not load tls files")
 		}
 
-		server.TLSConfig = &tls.Config{
+		srv.TLSConfig = &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		}
-		return server.ListenAndServe()
+		srv.Handler = &BlackholeServer{}
+		return srv.ListenAndServe()
 	default:
 		return fmt.Errorf("unsupported protocol [%s]", config.ListenProtocol)
 	}
@@ -117,7 +119,6 @@ func main() {
 			log.Fatalf("Failed to run blackhole server: %s", err)
 		}
 	}
-
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("Failed to set %s listener %s\n", protocol, err.Error())
 	}

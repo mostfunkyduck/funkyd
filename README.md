@@ -17,11 +17,21 @@ Currently, the project does not do its own installation.  It requires the follow
 
 Eventually a container will exist that will make this easier
 
+## Container/testing
+The `Dockerfile` and `docker-compose.yml` in this repository are for running benchmark tests on funkyd.  Using assets in the repo, the compose file will start up a test server that points to a blackhole server that discards all inbound queries. There is then `Dockerfile.dnsperf`, which builds a local container with dnsperf installed that can be run to automatically launch tests on both the blackhole and the testbox.
+For Example:
+```
+sudo docker build -t mine/dnsperf -f ./Dockerfile.dnsperf .
+sudo docker-compose up -d
+sudo docker run mine/dnsperf
+```
+Benchmarks can be added by configuring `test/run_tests.sh to run more tests.  There is currently only one configuration supported for all benchmarking.
+
 ## Wait a sec, can't you do this with $otherproject?
 Perhaps. This is a hobby project, anything it does beyond what other projects do is a fun bonus.  That being said, there's no reason it can't shamelessly rip off other projects.
 
-## Should I use this in production?
-Maybe, if you're insane enough to deploy a beta-level project into production
+## Should I use this?
+Can't think of a reason not to!
 
 ## Current Goals
 1. routing options, allow discarding internal traffic

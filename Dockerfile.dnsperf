@@ -1,0 +1,15 @@
+FROM ubuntu:latest
+
+WORKDIR /app
+ADD ./test/run_tests.sh /app/run_tests.sh
+ADD ./test/junkdomains /app/junkdomains
+RUN apt update && \
+    apt install -y git libbind-dev libkrb5-dev libssl-dev libcap-dev libxml2-dev libjson-c-dev libgeoip-dev autoconf automake libtool && \
+    git clone https://github.com/DNS-OARC/dnsperf.git && \
+    cd /app/dnsperf && \
+    ./autogen.sh && \
+    ./configure && \
+    make && \
+    make install
+
+ENTRYPOINT /app/run_tests.sh
