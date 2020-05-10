@@ -6,21 +6,6 @@ import (
 )
 
 // TODO link that project which sorta inspired this
-type ConnPool struct {
-	cache           map[string][]*ConnEntry
-	lock            Lock
-	MaxConnsPerHost int
-}
-
-type CachedConn interface {
-	Close() error
-}
-type ConnEntry struct {
-	Conn           CachedConn
-	Address        string
-	ExpirationDate time.Time
-}
-
 func (c *ConnEntry) IsExpired() bool {
 	if (c.ExpirationDate == time.Time{}) {
 		return false
@@ -28,10 +13,8 @@ func (c *ConnEntry) IsExpired() bool {
 	return time.Now().After(c.ExpirationDate)
 }
 func InitConnPool() ConnPool {
-	config := GetConfiguration()
 	return ConnPool{
-		cache:           make(map[string][]*ConnEntry),
-		MaxConnsPerHost: config.MaxConnsPerHost,
+		cache: make(map[string][]*ConnEntry),
 	}
 }
 
@@ -59,20 +42,14 @@ func (c *ConnPool) Add(ce *ConnEntry) (bool, error) {
 		ce.ExpirationDate = time.Now().Add(time.Duration(config.ConnectionLife) * time.Second)
 	}
 
-	if c.MaxConnsPerHost > 0 {
-		if _, ok := c.cache[ce.Address]; ok {
-			if len(c.cache[ce.Address]) >= c.MaxConnsPerHost {
-				return false, fmt.Errorf("connection pool for host [%s] is full", ce.Address)
-			}
-			c.cache[ce.Address] = append(c.cache[ce.Address], ce)
-		} else {
-			// the max is greater than zero and there's nothing here, so we can just insert
-			c.cache[ce.Address] = []*ConnEntry{ce}
-		}
-		ConnPoolSizeGauge.WithLabelValues(ce.Address).Set(float64(len(c.cache[ce.Address])))
-		return true, nil
+	if _, ok := c.cache[ce.Address]; ok {
+		c.cache[ce.Address] = append(c.cache[ce.Address], ce)
+	} else {
+		// the max is greater than zero and there's nothing here, so we can just insert
+		c.cache[ce.Address] = []*ConnEntry{ce}
 	}
-	return false, nil
+	ConnPoolSizeGauge.WithLabelValues(ce.Address).Set(float64(len(c.cache[ce.Address])))
+	return true, nil
 }
 
 func (c *ConnPool) Get(address string) (*ConnEntry, error) {

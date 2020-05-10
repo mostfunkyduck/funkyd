@@ -58,6 +58,21 @@ type Server interface {
 	SetResolvers([]*Resolver)
 }
 
+type ConnPool struct {
+	cache map[string][]*ConnEntry
+	lock  Lock
+}
+
+type CachedConn interface {
+	Close() error
+}
+
+type ConnEntry struct {
+	Conn           CachedConn
+	Address        string
+	ExpirationDate time.Time
+}
+
 type MutexServer struct {
 	// lookup cache
 	Cache *RecordCache

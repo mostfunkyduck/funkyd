@@ -36,10 +36,11 @@ func validateFlags() error {
 	return nil
 }
 
-func runBlackholeServer(srv *dns.Server) error {
+func runBlackholeServer() error {
 	config := GetConfiguration()
 	switch config.ListenProtocol {
 	case "tcp-tls":
+		srv := &dns.Server{Addr: ":" + strconv.Itoa(config.DnsPort), Net: "tcp-tls", MaxTCPQueries: -1, ReusePort: true}
 		log.Printf("starting tls blackhole server")
 		if (config.TlsConfig == tlsConfig{}) {
 			log.Fatalf("attempted to listen for TLS connections, but no tls config was defined")
@@ -67,6 +68,26 @@ func runBlackholeServer(srv *dns.Server) error {
 	}
 }
 
+func loadLocalZones(server Server) {
+	config := GetConfiguration()
+	// read in zone files, if configured to do so
+	for _, file := range config.ZoneFiles {
+		file, err := ioutil.ReadFile(file)
+		if err != nil {
+			log.Fatalf("could not read zone file [%s]: %s\n", file, err)
+		}
+		responses, err := ParseZoneFile(string(file))
+		if err != nil {
+			log.Fatalf("could not parse zone file [%s]: %s\n", file, err)
+		}
+		for _, response := range responses {
+			log.Printf("adding [%v]\n", response)
+			// TODO one function to make the keys, please
+			server.GetHostedCache().Add(response)
+		}
+	}
+}
+
 func main() {
 	flag.Parse()
 	validateFlags()
@@ -88,38 +109,34 @@ func main() {
 		log.Fatalf("could not initialize new server: %s\n", err)
 	}
 
-	// read in zone files, if configured to do so
-	for _, file := range config.ZoneFiles {
-		file, err := ioutil.ReadFile(file)
-		if err != nil {
-			log.Fatalf("could not read zone file [%s]: %s\n", file, err)
-		}
-		responses, err := ParseZoneFile(string(file))
-		if err != nil {
-			log.Fatalf("could not parse zone file [%s]: %s\n", file, err)
-		}
-		for _, response := range responses {
-			log.Printf("adding [%v]\n", response)
-			// TODO one function to make the keys, please
-			server.GetHostedCache().Add(response)
-		}
+	loadLocalZones(server)
+
+	dnsPort := config.DnsPort
+	if dnsPort == 0 {
+		dnsPort = 53
 	}
 
 	// set up DNS server
-	protocol := config.ListenProtocol
-	if protocol == "" {
-		protocol = "udp"
-	}
-	srv := &dns.Server{Addr: ":" + strconv.Itoa(config.DnsPort), Net: protocol, MaxTCPQueries: -1, ReusePort: true}
-	srv.Handler = server
+	srv := &dns.Server{Addr: ":" + strconv.Itoa(dnsPort), Net: "udp", MaxTCPQueries: -1, ReusePort: true}
+	srv2 := &dns.Server{Addr: ":" + strconv.Itoa(dnsPort), Net: "tcp", MaxTCPQueries: -1, ReusePort: true}
+
+	srv.Handler, srv2.Handler = server, server
+
 	if config.Blackhole {
 		// PSYCH!
-		err := runBlackholeServer(srv)
+		err := runBlackholeServer()
 		if err != nil {
 			log.Fatalf("Failed to run blackhole server: %s", err)
 		}
 	}
+
+	go func(srv2 *dns.Server) {
+		if err := srv2.ListenAndServe(); err != nil {
+			log.Fatalf("Failed to set up TCP listener: %s", err)
+		}
+	}(srv2)
+
 	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to set %s listener %s\n", protocol, err.Error())
+		log.Fatalf("Failed to set up UDP listener %s\n", err.Error())
 	}
 }

@@ -13,11 +13,9 @@ type logConfig struct {
 
 	// Where the log file should live
 	Location string `json:"location"`
-
-	// Whether to always use the minimal format for logs, which may be harder to parse
-	TrimFormat bool `json:"trim_format"`
 }
 
+// For server side tls configuration
 type tlsConfig struct {
 	// Private key file
 	PrivateKeyFile string `json:"private_key_file"`
@@ -47,9 +45,6 @@ type Configuration struct {
 
 	// Port to expose admin API on
 	HttpPort int `json:"http_port"`
-
-	// Sets the maximum connections to keep in the connection pool per upstream resolver
-	MaxConnsPerHost int `json:"max_conns_per_host"`
 
 	// Maximum concurrent queries
 	ConcurrentQueries int `json:"concurrent_queries"`
