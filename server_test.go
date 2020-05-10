@@ -111,6 +111,7 @@ func testConcurrently(testF testFunc, arguments []interface{}) chan interface{} 
 	close(argsChan)
 	return r
 }
+
 func BenchmarkCache(b *testing.B) {
 	server, testClient, testConn := buildTestResources(b)
 	results := testConcurrently(func(i interface{}) interface{} {
@@ -132,4 +133,31 @@ func BenchmarkCache(b *testing.B) {
 		b.Fatalf("assertion failed on connection")
 	}
 
+}
+
+func TestGetResolvers(t *testing.T) {
+	server := &Server{
+		Resolvers: []*Resolver{
+			&Resolver{
+				Name: "a.b.c.d.e.f.g",
+			},
+			&Resolver{
+				Name: "g.f.e.d.c.b.a",
+			},
+		},
+	}
+
+	names := server.GetResolvers()
+	for _, r := range server.Resolvers {
+		var found = false
+		for _, n := range names {
+			if n == r.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("could not find resolver name [%s] in list of resolvers [%v]", string(r.Name), server.Resolvers)
+		}
+	}
 }

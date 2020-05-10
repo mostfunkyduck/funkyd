@@ -91,17 +91,18 @@ func (s *Server) MakeConnection(address string) (*ConnEntry, error) {
 	return &ConnEntry{Conn: conn, Address: address}, nil
 }
 
-//https://www.calhoun.io/how-to-shuffle-arrays-and-slices-in-go/
-func (s *Server) ShuffleResolvers() {
-	r := rand.New(rand.NewSource(time.Now().Unix()))
-	shuffled := make([]*Resolver, len(s.Resolvers))
-	perm := r.Perm(len(s.Resolvers))
-	for i, randIndex := range perm {
-		shuffled[i] = s.Resolvers[randIndex]
+func (s *Server) GetResolvers() []ResolverName {
+	var resolvers []ResolverName
+	for _, v := range s.Resolvers {
+		resolvers = append(resolvers, v.Name)
 	}
-	s.Resolvers = shuffled
-}
 
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(resolvers), func(i, j int) {
+		resolvers[i], resolvers[j] = resolvers[j], resolvers[i]
+	})
+	return resolvers
+}
 func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
 	RecursiveQueryCounter.Inc()
 
@@ -112,8 +113,8 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 	m.SetQuestion(domain, rrtype)
 	m.RecursionDesired = true
 
-	for _, resolver := range s.Resolvers {
-		address := string(resolver.Name) + ":" + port
+	for _, resolver := range s.GetResolvers() {
+		address := string(resolver) + ":" + port
 		Logger.Log(NewLogMessage(
 			INFO,
 			LogContext{
@@ -126,7 +127,7 @@ func (s *Server) RecursiveQuery(domain string, rrtype uint16) (Response, string,
 
 		if err != nil {
 			Logger.Log(NewLogMessage(
-				ERROR,
+				INFO,
 				LogContext{
 					"what": fmt.Sprintf("cache miss connecting to [%s]: [%s]", address, err),
 					"next": "creating new connection",
@@ -212,7 +213,7 @@ func (server *Server) RetrieveRecords(domain string, rrtype uint16) (Response, s
 		return cached_response, "cache", nil
 	}
 
-	// Now check the hosted cache (stuff in our zone files that we're taking care of
+	// Now check the hosted cache (stuff in our zone files that we're taking care of)
 	cached_response, ok = server.HostedCache.Get(domain, rrtype)
 	if ok {
 		HostedCacheHitsCounter.Inc()
