@@ -10,14 +10,24 @@ import (
 type logConfig struct {
 	// What log level to use
 	Level LogLevel `json:"level"`
+
 	// Where the log file should live
 	Location string `json:"location"`
+
 	// Whether to always use the minimal format for logs, which may be harder to parse
 	TrimFormat bool `json:"trim_format"`
 }
 
+type tlsConfig struct {
+	// Private key file
+	PrivateKeyFile string `json:"private_key_file"`
+
+	// Public cert file
+	CertificateFile string `json:"certificate_file"`
+}
+
 type Configuration struct {
-	// Dial timeout
+	// Dial timeout in seconds
 	Timeout time.Duration `json:"timeout"`
 
 	// How long connections should be kept around for, default of 0 will mean unlimited
@@ -26,11 +36,14 @@ type Configuration struct {
 	// Location of zone files with local dns configuration
 	ZoneFiles []string `json:"zone_files"`
 
-	// Port to listen for DNS traffic on
-	DnsPort int `json:"dns_port"`
-
 	// List of upstream resolvers, overrides resolv.conf
 	Resolvers []ResolverName `json:"resolvers"`
+
+	// Whether or not to blackhole all DNS traffic
+	Blackhole bool `json:"blackhole"`
+
+	// Port to listen for DNS traffic on
+	DnsPort int `json:"dns_port"`
 
 	// Port to expose admin API on
 	HttpPort int `json:"http_port"`
@@ -46,6 +59,18 @@ type Configuration struct {
 
 	// Query logging
 	QueryLog logConfig `json:"query_log"`
+
+	// Which protocol to listen on
+	ListenProtocol string `json:"listen_protocol"`
+
+	// Optional TLS config for using TLS inbound
+	TlsConfig tlsConfig `json:"tls"`
+
+	// skips cert verification, only use in testing pls
+	SkipUpstreamVerification bool `json:"skip_upstream_verification"`
+
+	// How many times to retry connections to upstream servers
+	UpstreamRetries int `json:"upstream_retries"`
 }
 
 // this is a pointer so that tests can set variables easily

@@ -60,6 +60,7 @@ func (s *MutexServer) MakeConnection(address string) (*ConnEntry, error) {
 			},
 			"",
 		))
+		FailedConnectionsCounter.WithLabelValues(address).Inc()
 		return &ConnEntry{}, err
 	}
 	Logger.Log(NewLogMessage(
@@ -86,6 +87,53 @@ func (s *MutexServer) GetResolvers() []ResolverName {
 	return resolvers
 }
 
+func (s *MutexServer) attemptExchange(address string, m *dns.Msg) (ce *ConnEntry, r *dns.Msg, success bool) {
+	ce, err := s.GetConnection(address)
+
+	if err != nil {
+		Logger.Log(NewLogMessage(
+			INFO,
+			LogContext{
+				"what": fmt.Sprintf("cache miss connecting to [%s]: [%s]", address, err),
+				"next": "creating new connection",
+			},
+			"",
+		))
+		ce, err = s.MakeConnection(address)
+		if err != nil {
+			Logger.Log(NewLogMessage(
+				ERROR,
+				LogContext{
+					"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
+				},
+				"",
+			))
+			return &ConnEntry{}, &dns.Msg{}, false
+		}
+	}
+
+	exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
+		ExchangeTimer.WithLabelValues(address).Observe(v)
+	}),
+	)
+	r, _, err = s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
+	exchangeTimer.ObserveDuration()
+	if err != nil {
+		ce.Conn.Close()
+		ResolverErrorsCounter.WithLabelValues(ce.Address).Inc()
+		Logger.Log(NewLogMessage(
+			ERROR,
+			LogContext{
+				"what": fmt.Sprintf("error looking up domain [%s] on server [%s]: %s", m.Question[0].Name, address, err),
+			},
+			"",
+		))
+		// try the next one
+		return &ConnEntry{}, &dns.Msg{}, false
+	}
+	return ce, r, true
+}
+
 func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
 	RecursiveQueryCounter.Inc()
 
@@ -98,6 +146,7 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 
 	for _, resolver := range s.GetResolvers() {
 		address := string(resolver) + ":" + port
+
 		Logger.Log(NewLogMessage(
 			INFO,
 			LogContext{
@@ -106,49 +155,18 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 			},
 			"",
 		))
-		ce, err := s.GetConnection(address)
 
-		if err != nil {
-			Logger.Log(NewLogMessage(
-				INFO,
-				LogContext{
-					"what": fmt.Sprintf("cache miss connecting to [%s]: [%s]", address, err),
-					"next": "creating new connection",
-				},
-				"",
-			))
-			ce, err = s.MakeConnection(address)
-			if err != nil {
-				Logger.Log(NewLogMessage(
-					ERROR,
-					LogContext{
-						"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
-						"next": "continuing to next resolver",
-					},
-					"",
-				))
-				continue
+		config := GetConfiguration()
+
+		// to avoid locals in the loop overriding what we need on the outer level
+		// predefine the vars here
+		var ce *ConnEntry
+		var r *dns.Msg
+		var success bool
+		for i := 0; i <= config.UpstreamRetries; i++ {
+			if ce, r, success = s.attemptExchange(address, m); success {
+				break
 			}
-		}
-		exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
-			ExchangeTimer.WithLabelValues(address).Observe(v)
-		}),
-		)
-		r, _, err := s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
-		exchangeTimer.ObserveDuration()
-		if err != nil {
-			ce.Conn.Close()
-			ResolverErrorsCounter.WithLabelValues(ce.Address).Inc()
-			Logger.Log(NewLogMessage(
-				ERROR,
-				LogContext{
-					"what": fmt.Sprintf("error looking up domain [%s] on server [%s]: %s", domain, address, err),
-					"next": "continuing to next resolver",
-				},
-				"",
-			))
-			// try the next one
-			continue
 		}
 
 		added, err := s.connPool.Add(ce)

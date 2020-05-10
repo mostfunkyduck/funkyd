@@ -18,6 +18,12 @@ var (
 		Name: "funkyd_queued_queries_total",
 		Help: "dns queries that have been received, but are waiting on a free worker",
 	})
+	FailedConnectionsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "funkyd_failed_connections_counter",
+		Help: "attempts to connect to an upstream that failed",
+	},
+		[]string{"destination"},
+	)
 	TotalDnsQueriesCounter = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "funkyd_dns_queries_total",
 		Help: "The total number of handled DNS queries",

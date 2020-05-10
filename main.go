@@ -45,15 +45,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not open configuration: %s\n", err)
 	}
+
+	config := GetConfiguration()
+
 	InitLoggers()
 	InitApi()
+
 	server, err := NewMutexServer(nil)
 	if err != nil {
 		log.Fatalf("could not initialize new server: %s\n", err)
 	}
 
 	// read in zone files, if configured to do so
-	config := GetConfiguration()
 	for _, file := range config.ZoneFiles {
 		file, err := ioutil.ReadFile(file)
 		if err != nil {
@@ -71,9 +74,35 @@ func main() {
 	}
 
 	// set up DNS server
-	srv := &dns.Server{Addr: ":" + strconv.Itoa(config.DnsPort), Net: "udp"}
+	protocol := config.ListenProtocol
+	if protocol == "" {
+		protocol = "udp"
+	}
+	srv := &dns.Server{Addr: ":" + strconv.Itoa(config.DnsPort), Net: protocol}
 	srv.Handler = server
+	if config.Blackhole {
+		// PSYCH!
+		switch protocol {
+		case "tcp-tls":
+			if (config.TlsConfig == tlsConfig{}) {
+				log.Fatalf("attempted to listen for TLS connections, but no tls config was defined")
+			}
+			if config.TlsConfig.CertificateFile == "" {
+				log.Fatalf("invalid certificate file in configuration")
+			}
+
+			if config.TlsConfig.PrivateKeyFile == "" {
+				log.Fatalf("invalid private key in configuration")
+			}
+			err := dns.ListenAndServeTLS(":"+strconv.Itoa(config.DnsPort), config.TlsConfig.CertificateFile, config.TlsConfig.PrivateKeyFile, &BlackholeServer{})
+			if err != nil {
+				log.Fatalf("failed to listen on TLS: %s", err)
+			}
+		default:
+			log.Fatalf("could not start blackhole server")
+		}
+	}
 	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to set udp listener %s\n", err.Error())
+		log.Fatalf("Failed to set %s listener %s\n", protocol, err.Error())
 	}
 }
