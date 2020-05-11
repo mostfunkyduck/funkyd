@@ -4,6 +4,7 @@ version: "3.3"
 services:
   blackhole:
     image: funkyd/funkyd
+    build: .
     networks:
       testnetwork:
         ipv4_address: 172.16.0.69

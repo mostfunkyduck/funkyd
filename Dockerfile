@@ -6,4 +6,8 @@ RUN GOPATH=/app go get || /bin/true
 RUN GOPATH=/app go build
 EXPOSE 53/tcp
 EXPOSE 53/udp
+EXPOSE 54321/tcp
 CMD ["sh"]
+
+FROM base AS deployable
+ENTRYPOINT ["/app/funkyd", "--conf", "/etc/funkyd/funkyd.conf"]

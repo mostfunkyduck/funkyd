@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
+	"time"
 )
 
 var (
@@ -88,6 +91,26 @@ func loadLocalZones(server Server) {
 	}
 }
 
+var servers []*dns.Server = []*dns.Server{}
+
+func addServer(s *dns.Server) {
+	servers = append(servers, s)
+}
+
+var shutdownMutex *sync.Mutex = &sync.Mutex{}
+
+func Shutdown() {
+	shutdownMutex.Lock()
+	defer shutdownMutex.Unlock()
+	for _, s := range servers {
+		ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+		defer cancel()
+		if err := s.ShutdownContext(ctx); err != nil {
+			log.Printf("error shutting down server [%v] : %s", s, err)
+		}
+	}
+}
+
 func main() {
 	flag.Parse()
 	validateFlags()
@@ -122,6 +145,8 @@ func main() {
 
 	srv.Handler, srv2.Handler = server, server
 
+	addServer(srv)
+	addServer(srv2)
 	if config.Blackhole {
 		// PSYCH!
 		err := runBlackholeServer()
@@ -139,4 +164,7 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("Failed to set up UDP listener %s\n", err.Error())
 	}
+
+	// the server on the main thread may have terminated first, wait until all shutdowns are complete
+	shutdownMutex.Lock()
 }

@@ -9,8 +9,20 @@ import (
 )
 
 func handleError(w http.ResponseWriter, err error, code int) {
-	log.Printf("error, returning %d: [%s]", code, err)
+	Logger.Log(NewLogMessage(
+		ERROR,
+		LogContext{
+			"error": fmt.Sprintf("%s", err),
+		},
+		"",
+	))
 	w.WriteHeader(code)
+}
+
+func shutdown(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(200)
+	w.Write([]byte("{\"message\": \"shutting down server\"}"))
+	Shutdown()
 }
 
 func config(w http.ResponseWriter, r *http.Request) {
@@ -20,7 +32,10 @@ func config(w http.ResponseWriter, r *http.Request) {
 		handleError(w, err, 500)
 		return
 	}
-	fmt.Fprintf(w, "%s\n", str)
+	_, err = w.Write([]byte(str))
+	if err != nil {
+		handleError(w, err, 500)
+	}
 }
 
 func addPratchettHeader(next http.Handler) http.Handler {
@@ -30,15 +45,19 @@ func addPratchettHeader(next http.Handler) http.Handler {
 	})
 }
 
+var HttpServer *http.Server
+
 func InitApi() {
 	conf := GetConfiguration()
 	router := mux.NewRouter().StrictSlash(true)
 	InitPrometheus(router)
 	router.Use(addPratchettHeader)
-	router.HandleFunc("/config", config)
+	router.HandleFunc("/v1/config", config)
+	router.HandleFunc("/v1/shutdown", shutdown)
 	log.Printf("starting HTTP server on ':%d'\n", conf.HttpPort)
+	HttpServer := &http.Server{Handler: router, Addr: fmt.Sprintf(":%d", conf.HttpPort)}
 	// don't block the main thread with this jazz
 	go func() {
-		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", conf.HttpPort), router))
+		log.Printf(fmt.Sprintf("%s", HttpServer.ListenAndServe()))
 	}()
 }
