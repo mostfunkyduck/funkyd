@@ -3,6 +3,7 @@ package main
 // The mutex server uses traditional concurrency controls
 import (
 	"context"
+	"sort"
 	"fmt"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
@@ -79,15 +80,16 @@ func (s *MutexServer) SetResolvers(r []*Resolver) {
 }
 
 func (s *MutexServer) GetResolverNames() []ResolverName {
-	var resolvers []ResolverName
+	resolvers := s.Resolvers
+	sort.SliceStable(resolvers, func (i, j int) bool {
+		return resolvers[i].Weight < resolvers[j].Weight
+	})
+	var resolverNames []ResolverName
 	for _, v := range s.Resolvers {
-		resolvers = append(resolvers, v.Name)
+		resolverNames = append(resolverNames, v.Name)
 	}
 
-	rand.Shuffle(len(resolvers), func(i, j int) {
-		resolvers[i], resolvers[j] = resolvers[j], resolvers[i]
-	})
-	return resolvers
+	return resolverNames
 }
 
 func (s *MutexServer) attemptExchange(address string, m *dns.Msg) (ce *ConnEntry, r *dns.Msg, success bool) {

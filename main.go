@@ -140,13 +140,13 @@ func main() {
 	}
 
 	// set up DNS server
-	srv := &dns.Server{Addr: ":" + strconv.Itoa(dnsPort), Net: "udp", MaxTCPQueries: -1, ReusePort: true}
-	srv2 := &dns.Server{Addr: ":" + strconv.Itoa(dnsPort), Net: "tcp", MaxTCPQueries: -1, ReusePort: true}
+	srvUDP := &dns.Server{Addr: ":" + strconv.Itoa(dnsPort), Net: "udp", MaxTCPQueries: -1, ReusePort: true}
+	srvTCP := &dns.Server{Addr: ":" + strconv.Itoa(dnsPort), Net: "tcp", MaxTCPQueries: -1, ReusePort: true}
 
-	srv.Handler, srv2.Handler = server, server
+	srvUDP.Handler, srvTCP.Handler = server, server
 
-	addServer(srv)
-	addServer(srv2)
+	addServer(srvUDP)
+	addServer(srvTCP)
 	if config.Blackhole {
 		// PSYCH!
 		err := runBlackholeServer()
@@ -156,12 +156,12 @@ func main() {
 	}
 
 	go func(srv2 *dns.Server) {
-		if err := srv2.ListenAndServe(); err != nil {
+		if err := srvUDP.ListenAndServe(); err != nil {
 			log.Fatalf("Failed to set up TCP listener: %s", err)
 		}
-	}(srv2)
+	}(srvUDP)
 
-	if err := srv.ListenAndServe(); err != nil {
+	if err := srvTCP.ListenAndServe(); err != nil {
 		log.Fatalf("Failed to set up UDP listener %s\n", err.Error())
 	}
 
