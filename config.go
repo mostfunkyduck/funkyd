@@ -28,9 +28,6 @@ type Configuration struct {
 	// Dial timeout in seconds
 	Timeout time.Duration `json:"timeout"`
 
-	// How long connections should be kept around for, default of 0 will mean unlimited
-	ConnectionLife time.Duration `json:"connection_life"`
-
 	// Location of zone files with local dns configuration
 	ZoneFiles []string `json:"zone_files"`
 

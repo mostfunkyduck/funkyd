@@ -31,17 +31,6 @@ func (c *ConnPool) Add(ce *ConnEntry) (bool, error) {
 	c.Lock()
 	defer c.Unlock()
 
-	// drop expired entries
-	if ce.IsExpired() {
-		return false, nil
-	}
-
-	// set a default expiration date
-	config := GetConfiguration()
-	if (ce.ExpirationDate == time.Time{}) && config.ConnectionLife > 0 {
-		ce.ExpirationDate = time.Now().Add(time.Duration(config.ConnectionLife) * time.Second)
-	}
-
 	if _, ok := c.cache[ce.Address]; ok {
 		c.cache[ce.Address] = append(c.cache[ce.Address], ce)
 	} else {
