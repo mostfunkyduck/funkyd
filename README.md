@@ -1,6 +1,6 @@
 # FunkyD
 
-## A TLS-by-design DNS server and forwarding resolver
+## A TLS-by-design recursive resolver 
 
 FunkyD has the following goals:
  * Provide a full featured, lightweight DNS server that will always use DNS-over-TLS for outbound queries (not DoH, DoH is for chumps).
