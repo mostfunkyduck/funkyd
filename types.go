@@ -42,7 +42,7 @@ type Server interface {
 	MakeConnection(address string) (*ConnEntry, error)
 
 	// Retrieves a list of resolver names to connect to
-	GetResolverNames() []ResolverName
+	GetResolvers() []*Resolver
 
 	// Runs a recursive query for a given record and record type
 	RecursiveQuery(domain string, rrtype uint16) (Response, string, error)
