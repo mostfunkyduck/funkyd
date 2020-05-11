@@ -62,7 +62,7 @@ func (c *ConnPool) Get(address string) (*ConnEntry, error) {
 							"what": fmt.Sprintf("connection to address [%s] has expired", address),
 							"next": "closing connection",
 						},
-						"",
+						nil,
 					))
 					ret.Conn.Close()
 					continue

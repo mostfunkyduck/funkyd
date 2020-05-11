@@ -86,14 +86,13 @@ func levelToString(level LogLevel) string {
 }
 
 // constructor, enforces format
-func NewLogMessage(level LogLevel, context LogContext, debugDetails string) logMessage {
-	if level == DEBUG {
-		context["debug"] = debugDetails
+func NewLogMessage(level LogLevel, context LogContext, debugDetails func() string) logMessage {
+	if level == DEBUG && debugDetails != nil {
+		context["debug"] = debugDetails()
 	}
 	return logMessage{
-		Level:        level,
-		Context:      context,
-		DebugDetails: debugDetails,
+		Level:   level,
+		Context: context,
 	}
 }
 
@@ -138,7 +137,7 @@ func InitLoggers() error {
 		LogContext{
 			"what": fmt.Sprintf("initialized new server logger at level [%s]", levelToString(l.level)),
 		},
-		fmt.Sprintf("%v", l),
+		func() string { return fmt.Sprintf("%v", l) },
 	))
 	Logger = l
 
@@ -156,7 +155,7 @@ func InitLoggers() error {
 		LogContext{
 			"what": "initialized new query logger",
 		},
-		fmt.Sprintf("%v", QueryLogger),
+		func() string { return fmt.Sprintf("%v", QueryLogger) },
 	))
 
 	return nil

@@ -14,7 +14,9 @@ func handleError(w http.ResponseWriter, err error, code int) {
 		LogContext{
 			"error": fmt.Sprintf("%s", err),
 		},
-		"",
+		func() string {
+			return fmt.Sprintf("[%v]", w)
+		},
 	))
 	w.WriteHeader(code)
 }

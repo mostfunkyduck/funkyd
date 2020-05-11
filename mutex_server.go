@@ -21,7 +21,7 @@ func (s *MutexServer) GetConnection(address string) (*ConnEntry, error) {
 				"what": "connection pool cache hit",
 				"next": "using stored connection",
 			},
-			"",
+			nil,
 		))
 		return connEntry, nil
 	}
@@ -30,7 +30,7 @@ func (s *MutexServer) GetConnection(address string) (*ConnEntry, error) {
 		LogContext{
 			"what": "connection pool cache miss",
 		},
-		"",
+		nil,
 	))
 	return &ConnEntry{}, err
 }
@@ -42,7 +42,7 @@ func (s *MutexServer) MakeConnection(address string) (*ConnEntry, error) {
 			"what": fmt.Sprintf("creating new connection to %s", address),
 			"next": "dialing",
 		},
-		"",
+		nil,
 	))
 
 	tlsTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
@@ -58,7 +58,7 @@ func (s *MutexServer) MakeConnection(address string) (*ConnEntry, error) {
 			LogContext{
 				"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
 			},
-			"",
+			nil,
 		))
 		FailedConnectionsCounter.WithLabelValues(address).Inc()
 		return &ConnEntry{}, err
@@ -68,7 +68,7 @@ func (s *MutexServer) MakeConnection(address string) (*ConnEntry, error) {
 		LogContext{
 			"what": fmt.Sprintf("connection to %s successful", address),
 		},
-		"",
+		nil,
 	))
 
 	return &ConnEntry{Conn: conn, Address: address}, nil
@@ -97,7 +97,7 @@ func (s *MutexServer) attemptExchange(address string, m *dns.Msg) (ce *ConnEntry
 		Logger.Log(NewLogMessage(
 			INFO,
 			LogContext{"what": fmt.Sprintf("cache miss connecting to [%s]: [%s]", address, err), "next": "creating new connection"},
-			"",
+			nil,
 		))
 		ce, err = s.MakeConnection(address)
 		if err != nil {
@@ -106,7 +106,7 @@ func (s *MutexServer) attemptExchange(address string, m *dns.Msg) (ce *ConnEntry
 				LogContext{
 					"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
 				},
-				"",
+				nil,
 			))
 			return &ConnEntry{}, &dns.Msg{}, false
 		}
@@ -126,7 +126,7 @@ func (s *MutexServer) attemptExchange(address string, m *dns.Msg) (ce *ConnEntry
 			LogContext{
 				"what": fmt.Sprintf("error looking up domain [%s] on server [%s]: %s", m.Question[0].Name, address, err),
 			},
-			"",
+			nil,
 		))
 		// try the next one
 		return &ConnEntry{}, &dns.Msg{}, false
@@ -153,7 +153,7 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 				"what": fmt.Sprintf("need connection to [%s]", address),
 				"next": "checking connection pool",
 			},
-			"",
+			nil,
 		))
 
 		config := GetConfiguration()
@@ -181,7 +181,7 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 					"why":  fmt.Sprintf("%s", err),
 					"next": "continuing without cache, disregarding error",
 				},
-				"",
+				nil,
 			))
 		}
 
@@ -193,7 +193,7 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 					"why":  "connection pool was full",
 					"next": "closing connection",
 				},
-				"",
+				nil,
 			))
 			ce.Conn.Close()
 		}
@@ -260,7 +260,7 @@ func (s *MutexServer) HandleDNS(w ResponseWriter, r *dns.Msg) {
 				"why":  fmt.Sprintf("%s", err),
 				"next": "panicking",
 			},
-			"",
+			nil,
 		))
 		panic(err)
 	}
@@ -277,7 +277,7 @@ func (s *MutexServer) HandleDNS(w ResponseWriter, r *dns.Msg) {
 					"error": fmt.Sprintf("%s", err),
 					"next":  "returning SERVFAIL",
 				},
-				fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response),
+				func() string { return fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response) },
 			))
 			duration := queryTimer.ObserveDuration()
 			sendServfail(w, duration, r)

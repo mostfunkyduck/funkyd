@@ -22,7 +22,7 @@ func (response Response) IsExpired(rr dns.RR) bool {
 			"what": fmt.Sprintf("checking if record with ttl [%d] off of creation time [%s] has expired", rr.Header().Ttl, response.CreationTime),
 			"next": fmt.Sprintf("returning whether or not the creation time + the TTL is before %v", time.Now()),
 		},
-		"",
+		nil,
 	))
 	return response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
 }
@@ -42,7 +42,7 @@ func (r Response) updateTtl(rr dns.RR) {
 			LogContext{
 				"what": fmt.Sprintf("attempted to update TTL on rr [%v] using response [%v]", rr, r),
 			},
-			"",
+			nil,
 		))
 		return
 	}
@@ -56,7 +56,7 @@ func (r Response) updateTtl(rr dns.RR) {
 			"why":  "updating cached TTL",
 			"next": "performing update",
 		},
-		"",
+		nil,
 	))
 	rr.Header().Ttl = uint32(ttl)
 }
@@ -83,20 +83,20 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 		LogContext{
 			"what": fmt.Sprintf("cache locked, attempting to get [%s] [%d] from cache", key, qtype),
 		},
-		"",
+		nil,
 	))
 	response, ok := rcache.cache[formatKey(key, qtype)]
 	if !ok {
-		Logger.Log(NewLogMessage(INFO, LogContext{"what": "cache miss"}, ""))
+		Logger.Log(NewLogMessage(INFO, LogContext{"what": "cache miss"}, nil))
 		return Response{}, false
 	}
 
 	if response.Qtype != qtype {
-		Logger.Log(NewLogMessage(WARNING, LogContext{"what": "mismatched qtype!", "why": fmt.Sprintf("[%d] != [%d]", response.Qtype, qtype)}, ""))
+		Logger.Log(NewLogMessage(WARNING, LogContext{"what": "mismatched qtype!", "why": fmt.Sprintf("[%d] != [%d]", response.Qtype, qtype)}, nil))
 		return Response{}, false
 	}
 
-	Logger.Log(NewLogMessage(INFO, LogContext{"what": "cache hit!", "next": "validating and assembling response from rr's"}, fmt.Sprintf("%v", response)))
+	Logger.Log(NewLogMessage(INFO, LogContext{"what": "cache hit!", "next": "validating and assembling response from rr's"}, func() string { return fmt.Sprintf("%v", response) }))
 	// there are records for this domain
 	for _, rec := range response.Entry.Answer {
 		Logger.Log(NewLogMessage(
@@ -106,7 +106,7 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 				"why":  "assembling response to query",
 				"next": "updating TTL in cache",
 			},
-			fmt.Sprintf("%v", response)))
+			func() string { return fmt.Sprintf("%v", response) }))
 		// just in case the clean job hasn't fired, filter out nastiness
 		response.updateTtl(rec)
 		if response.IsExpired(rec) {
@@ -115,11 +115,11 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 
 			// TODO differentiate between synthesized CNAMEs and regular records - CNAMES have long TTLs  since they refer to an A
 			// that's holding the actual value, therefore the synthesized A will die before the CNAME itself.
-			Logger.Log(NewLogMessage(DEBUG, LogContext{"what": "cached entry has expired", "why": "response contains record with expired TTL", "next": "returning cache miss"}, ""))
+			Logger.Log(NewLogMessage(DEBUG, LogContext{"what": "cached entry has expired", "why": "response contains record with expired TTL", "next": "returning cache miss"}, nil))
 			return Response{}, false
 		}
 	}
-	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": fmt.Sprintf("returning [%v] from cache get", key)}, ""))
+	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": fmt.Sprintf("returning [%v] from cache get", key)}, nil))
 	return response, true
 }
 
@@ -132,7 +132,7 @@ func (rcache *RecordCache) Remove(response Response) error {
 			"what": fmt.Sprintf("removing [%v] from cache using key [%v]", response, key),
 			"next": "deleting from cache",
 		},
-		"",
+		nil,
 	))
 	delete(rcache.cache, key)
 	CacheSizeGauge.Set(float64(len(rcache.cache)))
@@ -169,7 +169,7 @@ func (rcache *RecordCache) Clean() int {
 			"why":  "cleaning record cache",
 			"next": "iterating through cache",
 		},
-		fmt.Sprintf("%v", rcache),
+		func() string { return fmt.Sprintf("%v", rcache) },
 	))
 
 	// https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should
@@ -182,7 +182,7 @@ func (rcache *RecordCache) Clean() int {
 				"why":  "evaluating for cleaning",
 				"next": "updating TTLs in all response records and expiring as needed",
 			},
-			"",
+			nil,
 		))
 		for _, record := range response.Entry.Answer {
 			// record is valid, update it
@@ -196,7 +196,7 @@ func (rcache *RecordCache) Clean() int {
 						"why":  "response has expired records",
 						"next": "continuing cleaning job on next response",
 					},
-					fmt.Sprintf("%v", rcache),
+					func() string { return fmt.Sprintf("%v", rcache) },
 				))
 				rcache.Remove(response)
 				records_deleted++
@@ -210,7 +210,7 @@ func (rcache *RecordCache) Clean() int {
 // Starts the internal cache clean timer that will periodically prune expired cache entries
 func (rcache *RecordCache) Init() {
 
-	Logger.Log(NewLogMessage(INFO, LogContext{"what": fmt.Sprintf("initializing clean ticket for %d second intervals", 1), "next": "starting ticker"}, ""))
+	Logger.Log(NewLogMessage(INFO, LogContext{"what": fmt.Sprintf("initializing clean ticket for %d second intervals", 1), "next": "starting ticker"}, nil))
 	ticker := time.NewTicker(1 * time.Hour)
 	go func() {
 		for range ticker.C {

@@ -41,7 +41,7 @@ func logQuery(source string, duration time.Duration, response *dns.Msg) error {
 			QueryLogger.Log(NewLogMessage(
 				CRITICAL,
 				queryContext,
-				"",
+				nil,
 			))
 		}
 	}
@@ -64,7 +64,7 @@ func BuildClient() (*dns.Client, error) {
 			"what": "instantiated new dns client in TLS mode",
 			"next": "returning for use",
 		},
-		"",
+		nil,
 	))
 	return cl, nil
 }
