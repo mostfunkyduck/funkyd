@@ -2,7 +2,7 @@ FROM ubuntu:latest as base
 
 WORKDIR /app
 RUN apt update && \
-    apt install -y git libbind-dev libkrb5-dev libssl-dev libcap-dev libxml2-dev libjson-c-dev libgeoip-dev autoconf automake libtool && \
+    apt install -y git libbind-dev libkrb5-dev libssl-dev libcap-dev libxml2-dev libjson-c-dev libgeoip-dev autoconf automake libtool curl && \
     git clone https://github.com/DNS-OARC/dnsperf.git && \
     cd /app/dnsperf && \
     ./autogen.sh && \

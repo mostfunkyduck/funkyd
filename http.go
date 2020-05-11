@@ -47,6 +47,13 @@ func addPratchettHeader(next http.Handler) http.Handler {
 	})
 }
 
+func setContentTypeHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		next.ServeHTTP(w, r)
+	})
+}
+
 var HttpServer *http.Server
 
 func InitApi() {
@@ -54,6 +61,8 @@ func InitApi() {
 	router := mux.NewRouter().StrictSlash(true)
 	InitPrometheus(router)
 	router.Use(addPratchettHeader)
+	router.Use(setContentTypeHeader)
+
 	router.HandleFunc("/v1/config", config)
 	router.HandleFunc("/v1/shutdown", shutdown)
 	log.Printf("starting HTTP server on ':%d'\n", conf.HttpPort)
