@@ -20,7 +20,7 @@ services:
         ipv4_address: 172.16.0.70
     volumes:
       - './test/funkyd:/etc/funkyd'
-    build: .
+
 networks:
   testnetwork:
     ipam:
