@@ -86,10 +86,11 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 		ExchangeTimer.WithLabelValues(address).Observe(v)
 	}),
 	)
-	reply, rtt, err := s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
-	exchangeTimer.ObserveDuration()
+	reply, _, err = s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
+	exchangeDuration := exchangeTimer.ObserveDuration()
+	ce.UpdateRTT(exchangeDuration)
 	if err != nil {
-		ce.Conn.Close()
+		s.connPool.CloseConnection(ce)
 		ResolverErrorsCounter.WithLabelValues(address).Inc()
 		Logger.Log(NewLogMessage(
 			ERROR,
@@ -102,7 +103,6 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 		// try the next one
 		return &ConnEntry{}, &dns.Msg{}, err
 	}
-	ce.UpdateRTT(rtt)
 	// just in case something changes above and it reaches this success code with a non-nil error :P
 	err = nil
 	return

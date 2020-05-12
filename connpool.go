@@ -67,11 +67,8 @@ func (c *ConnPool) sortResolvers() {
 	})
 }
 
-// adds a connection to the cache, returns whether or not it could be added and an error
-func (c *ConnPool) Add(ce *ConnEntry) (err error) {
-	c.Lock()
-	defer c.Unlock()
-
+// updates a resolver's weight based on a conn entry being added or closed
+func (c *ConnPool) updateResolver(ce *ConnEntry) (err error) {
 	address := ce.GetAddress()
 	res, err := c.GetResolverByAddress(address)
 	if err != nil {
@@ -81,6 +78,17 @@ func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 	c.weightResolver(res, *ce)
 
 	c.sortResolvers()
+	return
+}
+
+// adds a connection to the cache, returns whether or not it could be added and an error
+func (c *ConnPool) Add(ce *ConnEntry) (err error) {
+	c.Lock()
+	defer c.Unlock()
+
+	address := ce.GetAddress()
+	c.updateResolver(ce)
+  // TODO handle error, it can't stop things, but we should know
 
 	if _, ok := c.cache[address]; ok {
 		c.cache[address] = append(c.cache[address], ce)
@@ -89,7 +97,7 @@ func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 		c.cache[address] = []*ConnEntry{ce}
 	}
 	ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
-	return nil
+	return
 }
 
 // Makes a new connection to a given resolver, wraps the whole thing in conn entry
@@ -111,7 +119,7 @@ func (c *ConnPool) NewConnection(res Resolver, dialFunc func(address string) (*d
 	)
 	NewConnectionAttemptsCounter.WithLabelValues(address).Inc()
 	conn, err := dialFunc(address)
-	tlsTimer.ObserveDuration()
+	dialDuration := tlsTimer.ObserveDuration()
 	if err != nil {
 		Logger.Log(NewLogMessage(
 			ERROR,
@@ -133,7 +141,7 @@ func (c *ConnPool) NewConnection(res Resolver, dialFunc func(address string) (*d
 		nil,
 	))
 
-	return &ConnEntry{Conn: conn, resolver: res}, nil
+	return &ConnEntry{Conn: conn, resolver: res, totalRTT: dialDuration}, nil
 }
 
 func (c *ConnPool) getNextAddress() (address string) {
@@ -170,6 +178,7 @@ func (c *ConnPool) Get() (ce *ConnEntry, res Resolver, err error) {
 				// pop off a connection and return it
 				ce, c.cache[address] = conns[i], conns[j:]
 				ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
+				ce.exchanges += 1
 				return ce, Resolver{}, nil
 			}
 		}
@@ -198,4 +207,11 @@ func (c *ConnPool) AddResolver(r *Resolver) {
 
 func (c *ConnPool) GetResolverNames() (names []ResolverName) {
 	return c.resolverNames
+}
+
+func (c *ConnPool) CloseConnection(ce *ConnEntry) {
+	c.Lock()
+	defer c.Unlock()
+	c.updateResolver(ce)
+	ce.Conn.Close()
 }
