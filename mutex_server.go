@@ -79,13 +79,17 @@ func (s *MutexServer) SetResolvers(r []*Resolver) {
 	s.Resolvers = r
 }
 
-func (s *MutexServer) GetResolvers() []*Resolver {
+func (s *MutexServer) GetResolverNames() []ResolverName {
 	resolvers := s.Resolvers
 	sort.SliceStable(resolvers, func (i, j int) bool {
 		return resolvers[i].Weight < resolvers[j].Weight
 	})
+	var resolverNames []ResolverName
+	for _, v := range s.Resolvers {
+		resolverNames = append(resolverNames, v.Name)
+	}
 
-	return resolvers
+	return resolverNames
 }
 
 func (s *MutexServer) attemptExchange(address string, m *dns.Msg) (ce *ConnEntry, r *dns.Msg, success bool) {
@@ -142,8 +146,8 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, st
 	m.SetQuestion(domain, rrtype)
 	m.RecursionDesired = true
 
-	for _, resolver := range s.GetResolvers() {
-		address := string(resolver.Name) + ":" + port
+	for _, resolver := range s.GetResolverNames() {
+		address := string(resolver) + ":" + port
 
 		Logger.Log(NewLogMessage(
 			INFO,
@@ -339,9 +343,11 @@ func NewMutexServer(cl Client) (Server, error) {
 	// don't init, we don't clean this one
 	ret.HostedCache = hostedcache
 	resolverNames := config.Resolvers
-	for _, name := range resolverNames {
+	for i, name := range resolverNames {
 		ret.Resolvers = append(ret.Resolvers, &Resolver{
 			Name: name,
+			// start off in order
+			Weight: i,
 		})
 	}
 	return ret, nil

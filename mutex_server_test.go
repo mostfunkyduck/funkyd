@@ -129,11 +129,11 @@ func TestGetResolvers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not initialize server [%s]", err)
 	}
-	resolvers := server.GetResolvers()
+	names := server.GetResolverNames()
 	for _, r := range server.(*MutexServer).Resolvers {
 		var found = false
-		for _, r1 := range resolvers {
-			if r1.Name == r.Name {
+		for _, n := range names {
+			if n == r.Name {
 				found = true
 				break
 			}
