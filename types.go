@@ -8,10 +8,18 @@ import (
 )
 
 type LogLevel int
+
 type ResolverName string
+type ResolverWeight float64
 type Resolver struct {
-	Name   ResolverName
-	Weight int
+	// The hostname of the resolver
+	Name ResolverName
+
+	// The port to connect to
+	Port int
+
+	// The current weight score of this resolver
+	Weight ResolverWeight
 }
 
 // making this to support dependency injection into the server
@@ -36,13 +44,7 @@ type Server interface {
 	HandleDNS(w ResponseWriter, m *dns.Msg)
 
 	// Retrieves a new connection to an upstream
-	GetConnection(address string) (*ConnEntry, error)
-
-	// Makes a new connection to an upstream
-	MakeConnection(address string) (*ConnEntry, error)
-
-	// Retrieves a list of resolver names to connect to
-	GetResolverNames() []ResolverName
+	GetConnection() (*ConnEntry, error)
 
 	// Runs a recursive query for a given record and record type
 	RecursiveQuery(domain string, rrtype uint16) (Response, string, error)
@@ -53,12 +55,22 @@ type Server interface {
 	// Retrieve the server's outbound client
 	GetDnsClient() Client
 
+	// Retrieve the cache of locally hosted records
 	GetHostedCache() *RecordCache
 
-	SetResolvers([]*Resolver)
+	// Add a resolver to the server's list
+	AddResolver(r *Resolver)
 }
 
 type ConnPool struct {
+	// List of actual resolver structs
+	resolvers []*Resolver
+
+	// List of resolver names.  This is kept separate so that callers
+	// can iterate through the resolvers list by name without having
+	// to lock the actual resolvers array.
+	resolverNames []ResolverName
+
 	cache map[string][]*ConnEntry
 	lock  Lock
 }
@@ -68,22 +80,28 @@ type CachedConn interface {
 }
 
 type ConnEntry struct {
-	Conn           CachedConn
-	Address        string
-	ExpirationDate time.Time
+	// The actual connection
+	Conn CachedConn
+
+	// The resolver that this connection is associated with
+	resolver Resolver
+
+	// The total RTT for this connection
+	totalRTT time.Duration
+
+	// The total exchanges for this connection
+	exchanges int
 }
 
 type MutexServer struct {
 	// lookup cache
 	Cache *RecordCache
+
 	// cache of records hosted by this server
 	HostedCache *RecordCache
 
 	// connection cache, b/c whynot
 	connPool ConnPool
-
-	// list of resolvers, to be randomly shuffled
-	Resolvers []*Resolver
 
 	// worker pool semaphore
 	sem *semaphore.Weighted

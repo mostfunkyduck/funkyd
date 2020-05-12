@@ -11,19 +11,40 @@ import (
 	"time"
 )
 
-func (s *MutexServer) GetConnection(address string) (*ConnEntry, error) {
-	connEntry, err := s.connPool.Get(address)
+func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
+	// first check the conn pool (this blocks)
+	ce, res, err := s.connPool.Get()
 	if err == nil {
+		// either a cache hit in the connection pool or a non-fatal cache miss, requiring a new connection
+		if (res != Resolver{}) {
+			// we're supposed to connect to this resolver, no existing connections
+			// (this doesn't block)
+			ce, err = s.connPool.NewConnection(res, s.dnsClient.Dial)
+			if err != nil {
+				Logger.Log(NewLogMessage(
+					ERROR,
+					LogContext{
+						"error":    err.Error(),
+						"what":     "could not make new connection to resolver",
+						"resolver": res.GetAddress(),
+					},
+					func() string { return fmt.Sprintf("res:[%v]", res) },
+				))
+				return ce, fmt.Errorf("could not make new connection to [%s]: %s", res.GetAddress(), err.Error())
+			}
+		}
+
+		address := ce.GetAddress()
 		ReusedConnectionsCounter.WithLabelValues(address).Inc()
 		Logger.Log(NewLogMessage(
 			INFO,
 			LogContext{
-				"what": "connection pool cache hit",
+				"what": fmt.Sprintf("got connection to [%s] from connection pool", address),
 				"next": "using stored connection",
 			},
 			nil,
 		))
-		return connEntry, nil
+		return ce, nil
 	}
 	Logger.Log(NewLogMessage(
 		INFO,
@@ -35,174 +56,114 @@ func (s *MutexServer) GetConnection(address string) (*ConnEntry, error) {
 	return &ConnEntry{}, err
 }
 
-func (s *MutexServer) MakeConnection(address string) (*ConnEntry, error) {
-	Logger.Log(NewLogMessage(
-		INFO,
-		LogContext{
-			"what": fmt.Sprintf("creating new connection to %s", address),
-			"next": "dialing",
-		},
-		nil,
-	))
+func (s *MutexServer) AddResolver(r *Resolver) {
+	s.connPool.AddResolver(r)
+}
 
-	tlsTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
-		TLSTimer.WithLabelValues(address).Observe(v)
-	}),
-	)
-	NewConnectionAttemptsCounter.WithLabelValues(address).Inc()
-	conn, err := s.dnsClient.Dial(address)
-	tlsTimer.ObserveDuration()
+func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg, err error) {
+	ce, err = s.GetConnection()
 	if err != nil {
 		Logger.Log(NewLogMessage(
 			ERROR,
 			LogContext{
-				"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
-			},
+				"error": fmt.Sprintf("error getting connection from pool: [%s]", err),
+				"next":  "aborting exchange attempt"},
 			nil,
 		))
-		FailedConnectionsCounter.WithLabelValues(address).Inc()
-		return &ConnEntry{}, err
-	}
-	Logger.Log(NewLogMessage(
-		INFO,
-		LogContext{
-			"what": fmt.Sprintf("connection to %s successful", address),
-		},
-		nil,
-	))
-
-	return &ConnEntry{Conn: conn, Address: address}, nil
-}
-
-func (s *MutexServer) SetResolvers(r []*Resolver) {
-	s.Resolvers = r
-}
-
-func (s *MutexServer) GetResolverNames() []ResolverName {
-	var resolvers []ResolverName
-		for _, v := range s.Resolvers {
-			resolvers = append(resolvers, v.Name)
-	}
-	rand.Shuffle(len(resolvers), func(i, j int) {
-			resolvers[i], resolvers[j] = resolvers[j], resolvers[i]
-	})
-	return resolvers
-}
-
-func (s *MutexServer) attemptExchange(address string, m *dns.Msg) (ce *ConnEntry, r *dns.Msg, success bool) {
-	ce, err := s.GetConnection(address)
-
-	if err != nil {
-		Logger.Log(NewLogMessage(
-			INFO,
-			LogContext{"what": fmt.Sprintf("cache miss connecting to [%s]: [%s]", address, err), "next": "creating new connection"},
-			nil,
-		))
-		ce, err = s.MakeConnection(address)
-		if err != nil {
-			Logger.Log(NewLogMessage(
-				ERROR,
-				LogContext{
-					"what": fmt.Sprintf("error connecting to [%s]: [%s]", address, err),
-				},
-				nil,
-			))
-			return &ConnEntry{}, &dns.Msg{}, false
-		}
+		return
 	}
 
+	address := ce.GetAddress()
 	exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
 		ExchangeTimer.WithLabelValues(address).Observe(v)
 	}),
 	)
-	r, _, err = s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
+	reply, rtt, err := s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
 	exchangeTimer.ObserveDuration()
 	if err != nil {
 		ce.Conn.Close()
-		ResolverErrorsCounter.WithLabelValues(ce.Address).Inc()
+		ResolverErrorsCounter.WithLabelValues(address).Inc()
 		Logger.Log(NewLogMessage(
 			ERROR,
 			LogContext{
-				"what": fmt.Sprintf("error looking up domain [%s] on server [%s]: %s", m.Question[0].Name, address, err),
+				"what":  fmt.Sprintf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address),
+				"error": fmt.Sprintf("%s", err),
 			},
-			nil,
+			func() string { return fmt.Sprintf("request [%v]", m) },
 		))
 		// try the next one
-		return &ConnEntry{}, &dns.Msg{}, false
+		return &ConnEntry{}, &dns.Msg{}, err
 	}
-	return ce, r, true
+	ce.UpdateRTT(rtt)
+	// just in case something changes above and it reaches this success code with a non-nil error :P
+	err = nil
+	return
 }
 
-func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (Response, string, error) {
+func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Response, address string, err error) {
 	RecursiveQueryCounter.Inc()
-
-	// based on example code https://github.com/miekg/dns/blob/master/example_test.go
-	port := "853"
 
 	m := &dns.Msg{}
 	m.SetQuestion(domain, rrtype)
 	m.RecursionDesired = true
 
-	for _, resolver := range s.GetResolverNames() {
-		address := string(resolver) + ":" + port
+	config := GetConfiguration()
 
+	// to avoid locals in the loop overriding what we need on the outer level
+	// predefine the vars here
+	var ce *ConnEntry
+	var r *dns.Msg
+	for i := 0; i <= config.UpstreamRetries; i++ {
+		if ce, r, err = s.attemptExchange(m); err == nil {
+			break
+		}
+		if err != nil {
+			Logger.Log(NewLogMessage(
+				WARNING,
+				LogContext{
+					"what":  "failed exchange with upstreams",
+					"error": err.Error(),
+					"next":  fmt.Sprintf("retrying until config.UpstreamRetries is met. currently on attempt [%d]/[%d]", i, config.UpstreamRetries),
+				},
+				nil,
+			))
+		}
+		// continue trying
+	}
+
+	if err != nil {
+		// we failed to complete any exchanges
 		Logger.Log(NewLogMessage(
-			INFO,
+			ERROR,
 			LogContext{
-				"what": fmt.Sprintf("need connection to [%s]", address),
-				"next": "checking connection pool",
+				"what":      "failed to complete any exchanges with upstreams",
+				"error":     err.Error(),
+				"errornote": "this is the most recent error, other errors may have been logged during the failed attempt(s)",
+				"address":   domain,
+				"rrtype":    string(rrtype),
+				"next":      "aborting query attempt",
 			},
 			nil,
 		))
-
-		config := GetConfiguration()
-
-		// to avoid locals in the loop overriding what we need on the outer level
-		// predefine the vars here
-		var ce *ConnEntry
-		var r *dns.Msg
-		var success bool
-		for i := 0; i <= config.UpstreamRetries; i++ {
-			if ce, r, success = s.attemptExchange(address, m); success {
-				break
-			}
-		}
-		if !success {
-			// move on to the next resolver
-			continue
-		}
-		added, err := s.connPool.Add(ce)
-		if err != nil {
-			Logger.Log(NewLogMessage(
-				ERROR,
-				LogContext{
-					"what": fmt.Sprintf("could not add connection entry [%v] to pool!", ce),
-					"why":  fmt.Sprintf("%s", err),
-					"next": "continuing without cache, disregarding error",
-				},
-				nil,
-			))
-		}
-
-		if !added {
-			Logger.Log(NewLogMessage(
-				INFO,
-				LogContext{
-					"what": fmt.Sprintf("not adding connection to [%s] to pool", ce.Address),
-					"why":  "connection pool was full",
-					"next": "closing connection",
-				},
-				nil,
-			))
-			ce.Conn.Close()
-		}
-
-		// this one worked, proceeding
-		reply, err := processResults(*r, domain, rrtype)
-		return reply, ce.Address, err
+		return Response{}, "", fmt.Errorf("failed to complete any exchanges with upstreams: %s", err)
 	}
-	// if we went through each server and couldn't find at least one result, bail with the full error string
-	return Response{}, "", fmt.Errorf("could not connect to any resolvers")
+
+	err = s.connPool.Add(ce)
+	if err != nil {
+		Logger.Log(NewLogMessage(
+			ERROR,
+			LogContext{
+				"what": "could not add connection entry to pool (enable debug logging for variable value)!",
+				"why":  fmt.Sprintf("%s", err),
+				"next": "continuing without cache, disregarding error",
+			},
+			func() string { return fmt.Sprintf("ce: [%v]", ce) },
+		))
+	}
+
+	// this one worked, proceeding
+	reply, err := processResults(*r, domain, rrtype)
+	return reply, ce.GetAddress(), err
 }
 
 // retrieves the record for that domain, either from cache or from
@@ -311,7 +272,7 @@ func NewMutexServer(cl Client) (Server, error) {
 		var err error
 		client, err = BuildClient()
 		if err != nil {
-			return &MutexServer{}, fmt.Errorf("could not build client [%s]\n", err)
+			return &MutexServer{}, fmt.Errorf("could not build client [%s]", err)
 		}
 	}
 
@@ -340,11 +301,9 @@ func NewMutexServer(cl Client) (Server, error) {
 	// don't init, we don't clean this one
 	ret.HostedCache = hostedcache
 	resolverNames := config.Resolvers
-	for i, name := range resolverNames {
-		ret.Resolvers = append(ret.Resolvers, &Resolver{
+	for _, name := range resolverNames {
+		ret.AddResolver(&Resolver{
 			Name: name,
-			// start off in order
-			Weight: i,
 		})
 	}
 	return ret, nil
