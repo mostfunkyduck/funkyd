@@ -127,7 +127,7 @@ func main() {
 	InitLoggers()
 	InitApi()
 
-	server, err := NewMutexServer(nil)
+	server, err := NewMutexServer(nil, nil)
 	if err != nil {
 		log.Fatalf("could not initialize new server: %s\n", err)
 	}

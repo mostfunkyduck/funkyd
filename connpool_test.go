@@ -2,34 +2,24 @@ package main
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/mock"
 	"github.com/miekg/dns"
 	"testing"
 )
 
-type MockConn struct {
-	mock.Mock
-}
-
-func (m *MockConn) Close() error {
-	ret := m.Called()
-	return ret.Error(0)
-}
-
 func buildPool() *ConnPool {
 	pool := InitConnPool()
 	pool.AddResolver(
-		&Resolver {
+		&Resolver{
 			Name: "example.com",
 			Port: 12345,
 		},
 	)
-	return &pool
+	return pool
 }
 
 func TestConnectionPoolSingleEntry(t *testing.T) {
 	pool := buildPool()
-	ce, err := pool.NewConnection(*pool.resolvers[0], func (addr string) (*dns.Conn, error) {
+	ce, err := pool.NewConnection(*pool.resolvers[0], func(addr string) (*dns.Conn, error) {
 		return &dns.Conn{}, nil
 	})
 	if err != nil {
@@ -75,16 +65,16 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 	}
 
 	for i := 0; i < max; i++ {
-			name := f(i)
-			pool.AddResolver(&Resolver{
-				Name: ResolverName(f(i)),
-			})
-			resolverNamesSeen[name] = false
+		name := f(i)
+		pool.AddResolver(&Resolver{
+			Name: ResolverName(f(i)),
+		})
+		resolverNamesSeen[name] = false
 	}
 
 	for _, each := range pool.resolvers {
 		address := each.GetAddress()
-		ce, err := pool.NewConnection(*each, func (addr string) (*dns.Conn, error){
+		ce, err := pool.NewConnection(*each, func(addr string) (*dns.Conn, error) {
 			return &dns.Conn{}, nil
 		})
 		if err != nil {
@@ -118,8 +108,8 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 
 func TestIllegalResolverAddition(t *testing.T) {
 	pool := buildPool()
-	ce := &ConnEntry {
-		resolver: Resolver {
+	ce := &ConnEntry{
+		resolver: Resolver{
 			Name: "doesntexist",
 		},
 	}
@@ -133,7 +123,7 @@ func TestConnectionPoolSize(t *testing.T) {
 	pool := buildPool()
 	max := 10
 	f := func(idx int) *ConnEntry {
-		res := Resolver { Name: "example.com", Port: idx}
+		res := Resolver{Name: "example.com", Port: idx}
 		return &ConnEntry{resolver: res}
 	}
 	// we want to add distinct entries in different sub-pools, based on the current
@@ -148,7 +138,50 @@ func TestConnectionPoolSize(t *testing.T) {
 		}
 	}
 
-	if pool.Size() != max * max {
-		t.Fatalf("got the wrong size for the pool, expected [%d], got [%d]", max * max, pool.Size())
+	if pool.Size() != max*max {
+		t.Fatalf("got the wrong size for the pool, expected [%d], got [%d]", max*max, pool.Size())
+	}
+}
+
+func resTestingDialer(res Resolver, b *testing.B) func(addr string) (conn *dns.Conn, err error) {
+	expectedAddress := res.GetAddress()
+	return func(addr string) (conn *dns.Conn, err error) {
+		if addr != expectedAddress {
+			b.Errorf("got unexpected address [%s] when dialing resolver [%v], expecting address [%s] to be dialed", addr, res, expectedAddress)
+		}
+		return &dns.Conn{}, nil
+	}
+}
+func BenchmarkConnectionParallel(b *testing.B) {
+	server, _, err := BuildStubServer()
+	if err != nil {
+		b.Fatalf("could not initialize server [%s]", err)
+	}
+
+	pool := server.GetConnectionPool()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 1
+		for pb.Next() {
+			res := Resolver{
+				Port: i,
+				Name: "example.com",
+			}
+			pool.NewConnection(res, resTestingDialer(res, b))
+			i++
+		}
+	})
+
+}
+
+func BenchmarkConnectionSerial(b *testing.B) {
+	server, _, err := buildTestResources()
+	if err != nil {
+		b.Fatalf("could not initialize server [%s]", err)
+	}
+	res := Resolver{
+		Name: "example.com",
+	}
+	for i := 0; i < b.N; i++ {
+		server.GetConnectionPool().NewConnection(res, resTestingDialer(res, b))
 	}
 }

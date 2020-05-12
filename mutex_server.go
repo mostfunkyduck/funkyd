@@ -17,6 +17,14 @@ func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
 	if err == nil {
 		// either a cache hit in the connection pool or a non-fatal cache miss, requiring a new connection
 		if (res != Resolver{}) {
+			Logger.Log(NewLogMessage(
+				INFO,
+				LogContext{
+					"what":    "creating new connection",
+					"address": res.GetAddress(),
+				},
+				nil,
+			))
 			// we're supposed to connect to this resolver, no existing connections
 			// (this doesn't block)
 			ce, err = s.connPool.NewConnection(res, s.dnsClient.Dial)
@@ -24,9 +32,9 @@ func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
 				Logger.Log(NewLogMessage(
 					ERROR,
 					LogContext{
-						"error":    err.Error(),
-						"what":     "could not make new connection to resolver",
-						"resolver": res.GetAddress(),
+						"error":   err.Error(),
+						"what":    "could not make new connection to resolver",
+						"address": res.GetAddress(),
 					},
 					func() string { return fmt.Sprintf("res:[%v]", res) },
 				))
@@ -262,7 +270,11 @@ func (s *MutexServer) GetHostedCache() *RecordCache {
 	return s.HostedCache
 }
 
-func NewMutexServer(cl Client) (Server, error) {
+func (s *MutexServer) GetConnectionPool() (pool *ConnPool) {
+	return s.connPool
+}
+
+func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
 	// seed the random generator once for resolver shuffling
 	rand.Seed(time.Now().UnixNano())
 
@@ -285,9 +297,12 @@ func NewMutexServer(cl Client) (Server, error) {
 
 	sem := semaphore.NewWeighted(c)
 
+	if pool == nil {
+		pool = InitConnPool()
+	}
 	ret := &MutexServer{
 		dnsClient: client,
-		connPool:  InitConnPool(),
+		connPool:  pool,
 		sem:       sem,
 	}
 	newcache, err := NewCache()

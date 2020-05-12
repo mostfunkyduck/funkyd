@@ -1,34 +1,37 @@
 package main
 
 import (
+	"fmt"
 	"github.com/google/go-cmp/cmp"
 	"github.com/miekg/dns"
 	"testing"
 	"time"
 )
 
-func setupCache(t *testing.T) *RecordCache {
-	rc, err := NewCache()
-	if err != nil {
-		t.Errorf("couldn't initialize new cache: %s\n", err)
-	}
-	return rc
+func setupCache() (rc *RecordCache, err error) {
+	return NewCache()
 }
 
-func setupResponse(t *testing.T) Response {
+func setupResponse(idx int) Response {
 	return Response{
-		Key:   "key",
+		Key:   fmt.Sprintf("%d", idx),
 		Entry: dns.Msg{},
 	}
 }
 
 func TestCache(t *testing.T) {
-	setupCache(t)
+	_, err := setupCache()
+	if err != nil {
+		t.Fatalf("couldn't set up cache: %s", err.Error())
+	}
 }
 
 func TestStorage(t *testing.T) {
-	cache := setupCache(t)
-	response := setupResponse(t)
+	cache, err := setupCache()
+	if err != nil {
+		t.Fatalf("couldn't set up cache: %s", err.Error())
+	}
+	response := setupResponse(1)
 	response.Ttl = 1099 * time.Second
 	response.CreationTime = time.Now()
 	cache.Add(response)
@@ -50,8 +53,11 @@ func TestStorage(t *testing.T) {
 }
 
 func TestClean(t *testing.T) {
-	cache := setupCache(t)
-	response := setupResponse(t)
+	cache, err := setupCache()
+	if err != nil {
+		t.Fatalf("couldn't set up cache: %s", err.Error())
+	}
+	response := setupResponse(1)
 	response.Ttl = 10 * time.Second
 	response.CreationTime = time.Now().Add(-15 * time.Second)
 	cache.Add(response)
@@ -63,5 +69,57 @@ func TestClean(t *testing.T) {
 	newrecord, ok := cache.Get("key", dns.TypeA)
 	if ok {
 		t.Errorf("cleaning didn't work: [%v] [%v]\n", cache, newrecord)
+	}
+}
+
+func BenchmarkCacheAddParallel(b *testing.B) {
+	cache, err := setupCache()
+	if err != nil {
+		b.Fatalf("couldn't set up cache: %s", err.Error())
+	}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			response := setupResponse(1)
+			cache.Add(response)
+		}
+	})
+}
+
+func BenchmarkCacheRemoveParallel(b *testing.B) {
+	max := 10000
+	cache, err := setupCache()
+	if err != nil {
+		b.Fatalf("couldn't set up cache: %s", err.Error())
+	}
+	responses := []Response{}
+	// the idea here is to create enough test removals to cause a lot of contention for the lock
+	// note that this test will be run with increasingly higher b.N values until it can be timed
+	for i := 0; i < max; i++ {
+		response := setupResponse(i)
+		responses = append(responses, response)
+		cache.Add(response)
+	}
+	responseChannel := make(chan Response)
+	go func() {
+		for _, each := range responses {
+			responseChannel <- each
+		}
+		close(responseChannel)
+	}()
+
+	b.Log("setup complete, starting tests")
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			for response := range responseChannel {
+				cache.Remove(response)
+			}
+		}
+	})
+
+	if cache.Size() != 0 {
+		b.Fatalf("cache still had entries after removal. cache [%v]", cache)
 	}
 }

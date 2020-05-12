@@ -28,8 +28,8 @@ func (ce *ConnEntry) GetWeight() (weight ResolverWeight) {
 	return ResolverWeight(int64(ce.exchanges) / currentRTT)
 }
 
-func InitConnPool() ConnPool {
-	return ConnPool{
+func InitConnPool() *ConnPool {
+	return &ConnPool{
 		cache: make(map[string][]*ConnEntry),
 	}
 }

@@ -124,7 +124,9 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 }
 
 // Removes an entire response from the cache
-func (rcache *RecordCache) Remove(response Response) error {
+func (r *RecordCache) Remove(response Response) error {
+	r.Lock()
+	defer r.Unlock()
 	key := formatKey(response.Key, response.Qtype)
 	Logger.Log(NewLogMessage(
 		DEBUG,
@@ -134,8 +136,8 @@ func (rcache *RecordCache) Remove(response Response) error {
 		},
 		nil,
 	))
-	delete(rcache.cache, key)
-	CacheSizeGauge.Set(float64(len(rcache.cache)))
+	delete(r.cache, key)
+	CacheSizeGauge.Set(float64(len(r.cache)))
 	return nil
 }
 

@@ -60,6 +60,9 @@ type Server interface {
 
 	// Add a resolver to the server's list
 	AddResolver(r *Resolver)
+
+	// Get a copy of the connection pool for this server
+	GetConnectionPool() *ConnPool
 }
 
 type ConnPool struct {
@@ -100,8 +103,8 @@ type MutexServer struct {
 	// cache of records hosted by this server
 	HostedCache *RecordCache
 
-	// connection cache, b/c whynot
-	connPool ConnPool
+	// connection pool
+	connPool *ConnPool
 
 	// worker pool semaphore
 	sem *semaphore.Weighted
