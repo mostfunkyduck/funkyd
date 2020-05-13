@@ -9,7 +9,7 @@ services:
       testnetwork:
         ipv4_address: 172.16.0.69
     volumes:
-      - './test/funkyd:/etc/funkyd'
+      - './testdata/funkyd:/etc/funkyd'
     build: .
     entrypoint: ["/app/funkyd", "-conf", "/etc/funkyd/blackhole.conf"]
 
@@ -20,7 +20,7 @@ services:
       testnetwork:
         ipv4_address: 172.16.0.70
     volumes:
-      - './test/funkyd:/etc/funkyd'
+      - './testdata/funkyd:/etc/funkyd'
 
 networks:
   testnetwork:
