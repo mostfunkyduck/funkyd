@@ -9,17 +9,17 @@ import (
 
 type LogLevel int
 
-type ResolverName string
-type ResolverWeight float64
-type Resolver struct {
-	// The hostname of the resolver
-	Name ResolverName
+type UpstreamName string
+type UpstreamWeight float64
+type Upstream struct {
+	// The hostname of the upstream
+	Name UpstreamName
 
 	// The port to connect to
 	Port int
 
-	// The current weight score of this resolver
-	Weight ResolverWeight
+	// The current weight score of this upstream
+	Weight UpstreamWeight
 }
 
 // making this to support dependency injection into the server
@@ -58,21 +58,21 @@ type Server interface {
 	// Retrieve the cache of locally hosted records
 	GetHostedCache() *RecordCache
 
-	// Add a resolver to the server's list
-	AddResolver(r *Resolver)
+	// Add a upstream to the server's list
+	AddUpstream(u *Upstream)
 
 	// Get a copy of the connection pool for this server
 	GetConnectionPool() *ConnPool
 }
 
 type ConnPool struct {
-	// List of actual resolver structs
-	resolvers []*Resolver
+	// List of actual upstream structs
+	upstreams []*Upstream
 
-	// List of resolver names.  This is kept separate so that callers
-	// can iterate through the resolvers list by name without having
-	// to lock the actual resolvers array.
-	resolverNames []ResolverName
+	// List of upstream names.  This is kept separate so that callers
+	// can iterate through the upstreams list by name without having
+	// to lock the actual upstreams array.
+	upstreamNames []UpstreamName
 
 	cache map[string][]*ConnEntry
 	lock  Lock
@@ -86,8 +86,8 @@ type ConnEntry struct {
 	// The actual connection
 	Conn CachedConn
 
-	// The resolver that this connection is associated with
-	resolver Resolver
+	// The upstream that this connection is associated with
+	upstream Upstream
 
 	// The total RTT for this connection
 	totalRTT time.Duration

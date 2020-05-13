@@ -11,21 +11,21 @@ import (
 	"time"
 )
 
-func (s *MutexServer) newConnection(res Resolver) (ce *ConnEntry, err error) {
-	// we're supposed to connect to this resolver, no existing connections
+func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error) {
+	// we're supposed to connect to this upstream, no existing connections
 	// (this doesn't block)
-	ce, err = s.connPool.NewConnection(res, s.dnsClient.Dial)
+	ce, err = s.connPool.NewConnection(upstream, s.dnsClient.Dial)
 	if err != nil {
 		// leaving this at DEBUG since we're passing the actual error up
-		address := res.GetAddress()
+		address := upstream.GetAddress()
 		Logger.Log(NewLogMessage(
 			DEBUG,
 			LogContext{
 				"error":   err.Error(),
-				"what":    "could not make new connection to resolver",
+				"what":    "could not make new connection to upstream",
 				"address": address,
 			},
-			func() string { return fmt.Sprintf("res:[%v]", res) },
+			func() string { return fmt.Sprintf("upstream:[%v]", upstream) },
 		))
 		return &ConnEntry{}, fmt.Errorf("could not connect to upstream (%s): %s", address, err.Error())
 	}
@@ -39,19 +39,19 @@ func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
 	//  cache hit: return the conn entry
 	//  error: return the error and an empty conn entry
 	// first check the conn pool (this blocks)
-	ce, res, err := s.connPool.Get()
-	if err == nil && (res != Resolver{}) {
+	ce, upstream, err := s.connPool.Get()
+	if err == nil && (upstream != Upstream{}) {
 		// cache miss, no error
 		Logger.Log(NewLogMessage(
 			INFO,
 			LogContext{
 				"what":    "creating new connection",
-				"address": res.GetAddress(),
+				"address": upstream.GetAddress(),
 			},
-			func() string { return fmt.Sprintf("res [%v]", res) },
+			func() string { return fmt.Sprintf("upstream [%v]", upstream) },
 		))
 
-		if ce, err = s.newConnection(res); err != nil {
+		if ce, err = s.newConnection(upstream); err != nil {
 			return &ConnEntry{}, err
 		}
 	} else if err != nil {
@@ -74,8 +74,8 @@ func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
 	return ce, nil
 }
 
-func (s *MutexServer) AddResolver(r *Resolver) {
-	s.connPool.AddResolver(r)
+func (s *MutexServer) AddUpstream(r *Upstream) {
+	s.connPool.AddUpstream(r)
 }
 
 func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg, err error) {
@@ -101,7 +101,7 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 	ce.UpdateRTT(exchangeDuration)
 	if err != nil {
 		s.connPool.CloseConnection(ce)
-		ResolverErrorsCounter.WithLabelValues(address).Inc()
+		UpstreamErrorsCounter.WithLabelValues(address).Inc()
 		Logger.Log(NewLogMessage(
 			ERROR,
 			LogContext{
@@ -285,7 +285,7 @@ func (s *MutexServer) GetConnectionPool() (pool *ConnPool) {
 }
 
 func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
-	// seed the random generator once for resolver shuffling
+	// seed the random generator once for upstream shuffling
 	rand.Seed(time.Now().UnixNano())
 
 	config := GetConfiguration()
@@ -326,9 +326,9 @@ func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
 	// don't init, we don't clean this one
 	ret.HostedCache = hostedcache
 
-	resolverNames := config.Resolvers
-	for _, name := range resolverNames {
-		ret.AddResolver(&Resolver{
+	upstreamNames := config.Upstreams
+	for _, name := range upstreamNames {
+		ret.AddUpstream(&Upstream{
 			Name: name,
 		})
 	}

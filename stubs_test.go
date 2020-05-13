@@ -46,13 +46,13 @@ func BuildStubServer() (Server, *StubDnsClient, error) {
 		return server, testClient, err
 	}
 
-	server.AddResolver(
-		&Resolver{
+	server.AddUpstream(
+		&Upstream{
 			Name: "a.b.c.d.e.f.g",
 		},
 	)
-	server.AddResolver(
-		&Resolver{
+	server.AddUpstream(
+		&Upstream{
 			Name: "g.f.e.d.c.b.a",
 		},
 	)

@@ -8,9 +8,9 @@ import (
 )
 
 var (
-	ResolverWeightGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "funkyd_resolver_weight_gauge",
-		Help: "the weights of the resolvers in the system, only meaningful when broken down per address",
+	UpstreamWeightGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "funkyd_upstream_weight_gauge",
+		Help: "the weights of the upstreams in the system, only meaningful when broken down per address",
 	},
 		[]string{"address"},
 	)
@@ -50,9 +50,9 @@ var (
 		Name: "funkyd_recursive_queries_total",
 		Help: "The total number of recursive queries run by this server",
 	})
-	ResolverErrorsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "funkyd_resolver_errors_total",
-		Help: "The total number of times an upstream resolver had errors",
+	UpstreamErrorsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "funkyd_upstream_errors_total",
+		Help: "The total number of times an upstream upstream had errors. This INCLUDES connection closure",
 	},
 		[]string{"destination"},
 	)

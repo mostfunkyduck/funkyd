@@ -8,8 +8,8 @@ import (
 
 func buildPool() *ConnPool {
 	pool := InitConnPool()
-	pool.AddResolver(
-		&Resolver{
+	pool.AddUpstream(
+		&Upstream{
 			Name: "example.com",
 			Port: 12345,
 		},
@@ -19,11 +19,11 @@ func buildPool() *ConnPool {
 
 func TestConnectionPoolSingleEntry(t *testing.T) {
 	pool := buildPool()
-	ce, err := pool.NewConnection(*pool.resolvers[0], func(addr string) (*dns.Conn, error) {
+	ce, err := pool.NewConnection(*pool.upstreams[0], func(addr string) (*dns.Conn, error) {
 		return &dns.Conn{}, nil
 	})
 	if err != nil {
-		t.Fatalf("could not make connection to resolver [%v]: %s", pool.resolvers[0], err.Error())
+		t.Fatalf("could not make connection to upstream [%v]: %s", pool.upstreams[0], err.Error())
 	}
 	err = pool.Add(ce)
 	if err != nil {
@@ -35,13 +35,13 @@ func TestConnectionPoolSingleEntry(t *testing.T) {
 		t.Errorf("pool [%v] had incorrect size [%d] after adding ce [%v], expected %d", pool, size, ce, 1)
 	}
 
-	ce1, res, err := pool.Get()
+	ce1, upstream, err := pool.Get()
 	if err != nil {
 		t.Fatalf("failed to retrieve new connection from pool [%v]", pool)
 	}
 
-	if (res != Resolver{}) {
-		t.Fatalf("tried to retrieve connection from pool, was prompted to make a new connection instead, resolver was [%v]", res)
+	if (upstream != Upstream{}) {
+		t.Fatalf("tried to retrieve connection from pool, was prompted to make a new connection instead, upstream was [%v]", upstream)
 	}
 
 	ce1Address := ce1.GetAddress()
@@ -58,58 +58,58 @@ func TestConnectionPoolSingleEntry(t *testing.T) {
 
 func TestConnectionPoolMultipleAddresses(t *testing.T) {
 	pool := buildPool()
-	resolverNamesSeen := make(map[ResolverName]bool)
+	upstreamNamesSeen := make(map[UpstreamName]bool)
 	max := 10
-	f := func(i int) ResolverName {
-		return ResolverName(fmt.Sprintf("entry #%d", i))
+	f := func(i int) UpstreamName {
+		return UpstreamName(fmt.Sprintf("entry #%d", i))
 	}
 
-	pool.resolvers = make([]*Resolver, 0)
+	pool.upstreams = make([]*Upstream, 0)
 	for i := 0; i < max; i++ {
 		name := f(i)
-		pool.AddResolver(&Resolver{
-			Name: ResolverName(f(i)),
+		pool.AddUpstream(&Upstream{
+			Name: UpstreamName(f(i)),
 		})
-		resolverNamesSeen[name] = false
+		upstreamNamesSeen[name] = false
 	}
 
-	for _, each := range pool.resolvers {
+	for _, each := range pool.upstreams {
 		address := each.GetAddress()
 		ce, err := pool.NewConnection(*each, func(addr string) (*dns.Conn, error) {
 			return &dns.Conn{}, nil
 		})
 		if err != nil {
-			t.Fatalf("could not get new connection on address [%s] resolver [%v]: %s", address, each, err.Error())
+			t.Fatalf("could not get new connection on address [%s] upstream [%v]: %s", address, each, err.Error())
 		}
 
 		if err := pool.Add(ce); err != nil {
-			t.Fatalf("error inserting entry [%v] for resolver [%v] on address [%s]: %s", ce, each, address, err.Error())
+			t.Fatalf("error inserting entry [%v] for upstream [%v] on address [%s]: %s", ce, each, address, err.Error())
 		}
 	}
 
 	for i := 0; i < max; i++ {
-		_, res, err := pool.Get()
+		_, upstream, err := pool.Get()
 		if err != nil {
 			t.Fatalf("error retrieving entry [%d] from pool [%v]: [%s]", i, pool, err)
 		}
 
-		if (res != Resolver{}) {
-			t.Fatalf("tried to retrieve connection from pool, got prompted to make a connection instead. size: [%d], pool: [%v], res: [%v] entry: [%d]", pool.Size(), pool, res, i)
+		if (upstream != Upstream{}) {
+			t.Fatalf("tried to retrieve connection from pool, got prompted to make a connection instead. size: [%d], pool: [%v], upstream: [%v] entry: [%d]", pool.Size(), pool, upstream, i)
 		}
 	}
 
 }
 
-func TestIllegalResolverAddition(t *testing.T) {
+func TestIllegalUpstreamAddition(t *testing.T) {
 	pool := buildPool()
 	ce := &ConnEntry{
-		resolver: Resolver{
+		upstream: Upstream{
 			Name: "doesntexist",
 		},
 	}
 
 	if err := pool.Add(ce); err == nil {
-		t.Fatalf("was able to add conn entry [%v] with non-existant resolver [%v] to pool [%v]", ce, ce.resolver, pool)
+		t.Fatalf("was able to add conn entry [%v] with non-existant upstream [%v] to pool [%v]", ce, ce.upstream, pool)
 	}
 }
 
@@ -117,14 +117,14 @@ func TestConnectionPoolSize(t *testing.T) {
 	pool := buildPool()
 	max := 10
 	f := func(idx int) *ConnEntry {
-		res := Resolver{Name: "example.com", Port: idx}
-		return &ConnEntry{resolver: res}
+		upstream := Upstream{Name: "example.com", Port: idx}
+		return &ConnEntry{upstream: upstream}
 	}
 	// we want to add distinct entries in different sub-pools, based on the current
 	// implementation which stores connections separately for each host
 	for i := 0; i < max; i++ {
 		ce := f(i)
-		pool.AddResolver(&ce.resolver)
+		pool.AddUpstream(&ce.upstream)
 		for j := 0; j < max; j++ {
 			if err := pool.Add(ce); err != nil {
 				t.Fatalf("tried to add connection [%v] to pool [%v], got potential error [%s]", ce, pool, err)
@@ -139,12 +139,12 @@ func TestConnectionPoolSize(t *testing.T) {
 
 func TestConnectionPoolWeighting(t *testing.T) {
 	pool := buildPool()
-	res := &Resolver{Name: "example.com"}
-	pool.AddResolver(res)
+	upstream := &Upstream{Name: "example.com"}
+	pool.AddUpstream(upstream)
 
-	ce, err := pool.NewConnection(*res, ResTestingDialer(*res))
+	ce, err := pool.NewConnection(*upstream, ResTestingDialer(*upstream))
 	if err != nil {
-		t.Fatalf("could not make connection with resolver [%v]: %s", res, err)
+		t.Fatalf("could not make connection with upstream [%v]: %s", upstream, err)
 	}
 	weight := ce.GetWeight()
 	if ce.GetWeight() <= 0 {
@@ -162,11 +162,11 @@ func BenchmarkConnectionParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 1
 		for pb.Next() {
-			res := Resolver{
+			upstream := Upstream{
 				Port: i,
 				Name: "example.com",
 			}
-			pool.NewConnection(res, ResTestingDialer(res))
+			pool.NewConnection(upstream, ResTestingDialer(upstream))
 			i++
 		}
 	})
@@ -183,11 +183,11 @@ func BenchmarkConnectionSerial(b *testing.B) {
 	}
 	pool := server.GetConnectionPool()
 	for i := 0; i < b.N; i++ {
-		res := Resolver{
+		upstream := Upstream{
 			Name: "example.com",
 			Port: i,
 		}
-		pool.NewConnection(res, resTestingDialer(res, b))
+		pool.NewConnection(upstream, resTestingDialer(upstream, b))
 	}
 }
 **/

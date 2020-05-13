@@ -31,8 +31,8 @@ type Configuration struct {
 	// Location of zone files with local dns configuration
 	ZoneFiles []string `json:"zone_files"`
 
-	// List of upstream resolvers, overrides resolv.conf
-	Resolvers []ResolverName `json:"resolvers"`
+	// List of upstreams, overrides resolv.conf
+	Upstreams []UpstreamName `json:"upstreams"`
 
 	// Whether or not to blackhole all DNS traffic
 	Blackhole bool `json:"blackhole"`

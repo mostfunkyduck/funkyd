@@ -15,17 +15,17 @@ func (c *ConnEntry) UpdateRTT(rtt time.Duration) {
 }
 
 func (c *ConnEntry) GetAddress() string {
-	return c.resolver.GetAddress()
+	return c.upstream.GetAddress()
 }
 
-func (ce *ConnEntry) GetWeight() (weight ResolverWeight) {
-	currentRTT := ResolverWeight(ce.totalRTT * time.Millisecond)
+func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
+	currentRTT := UpstreamWeight(ce.totalRTT * time.Millisecond)
 	if currentRTT == 0 {
 		// this is the highest possible weight, this connection hasn't seen any action and will
 		// jump to the top
 		return 0
 	}
-	return ResolverWeight(ce.exchanges) / currentRTT
+	return UpstreamWeight(ce.exchanges) / currentRTT
 }
 
 func InitConnPool() *ConnPool {
@@ -42,44 +42,44 @@ func (c *ConnPool) Unlock() {
 	c.lock.Unlock()
 }
 
-// Retrieves a given resolver based on its address.  This is used to avoid excessive
-// locking while passing around resolvers
-func (c *ConnPool) GetResolverByAddress(address string) (resolver *Resolver, err error) {
-	// technically not the fastest way to do this, but the list of resolvers shouldn't be big enough for it to matter
-	for _, res := range c.resolvers {
-		if res.GetAddress() == address {
-			return res, nil
+// Retrieves a given upstream based on its address.  This is used to avoid excessive
+// locking while passing around upstreams
+func (c *ConnPool) GetUpstreamByAddress(address string) (upstream *Upstream, err error) {
+	// technically not the fastest way to do this, but the list of upstreams shouldn't be big enough for it to matter
+	for _, upstream := range c.upstreams {
+		if upstream.GetAddress() == address {
+			return upstream, nil
 		}
 	}
-	return &Resolver{}, fmt.Errorf("could not find resolver with address [%s]", address)
+	return &Upstream{}, fmt.Errorf("could not find upstream with address [%s]", address)
 }
 
 // WARNING: this function is not reentrant, it is meant to be called internally
-// when the connection pool is already locked and needs to update its resolver weights
-func (c *ConnPool) weightResolver(res *Resolver, ce ConnEntry) {
-	res.Weight = ce.GetWeight()
-	ResolverWeightGauge.WithLabelValues(res.GetAddress()).Set(float64(res.Weight))
+// when the connection pool is already locked and needs to update its upstream weights
+func (c *ConnPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
+	upstream.Weight = ce.GetWeight()
+	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress()).Set(float64(upstream.Weight))
 }
 
-// arranges the resolvers based on weight
-func (c *ConnPool) sortResolvers() {
-	sort.SliceStable(c.resolvers, func(i, j int) bool {
-		return c.resolvers[i].Weight < c.resolvers[j].Weight
+// arranges the upstreams based on weight
+func (c *ConnPool) sortUpstreams() {
+	sort.SliceStable(c.upstreams, func(i, j int) bool {
+		return c.upstreams[i].Weight < c.upstreams[j].Weight
 	})
 }
 
-// updates a resolver's weight based on a conn entry being added or closed
-func (c *ConnPool) updateResolver(ce *ConnEntry) (err error) {
+// updates a upstream's weight based on a conn entry being added or closed
+func (c *ConnPool) updateUpstream(ce *ConnEntry) (err error) {
 	address := ce.GetAddress()
 	// get the actual pointer for this ce's upstream
-	res, err := c.GetResolverByAddress(address)
+	upstream, err := c.GetUpstreamByAddress(address)
 	if err != nil {
 		return fmt.Errorf("could not add conn entry with address [%s]: %s", address, err.Error())
 	}
 
-	c.weightResolver(res, *ce)
+	c.weightUpstream(upstream, *ce)
 
-	c.sortResolvers()
+	c.sortUpstreams()
 	return
 }
 
@@ -89,8 +89,8 @@ func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 	defer c.Unlock()
 
 	address := ce.GetAddress()
-	if err = c.updateResolver(ce); err != nil {
-		err = fmt.Errorf("couldn't update resolver weight on connection to [%s]: %s", address, err.Error())
+	if err = c.updateUpstream(ce); err != nil {
+		err = fmt.Errorf("couldn't update upstream weight on connection to [%s]: %s", address, err.Error())
 	}
 	Logger.Log(NewLogMessage(
 		INFO,
@@ -112,9 +112,9 @@ func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 	return
 }
 
-// Makes a new connection to a given resolver, wraps the whole thing in conn entry
-func (c *ConnPool) NewConnection(res Resolver, dialFunc func(address string) (*dns.Conn, error)) (ce *ConnEntry, err error) {
-	address := res.GetAddress()
+// Makes a new connection to a given upstream, wraps the whole thing in conn entry
+func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string) (*dns.Conn, error)) (ce *ConnEntry, err error) {
+	address := upstream.GetAddress()
 	Logger.Log(NewLogMessage(
 		INFO,
 		LogContext{
@@ -122,7 +122,7 @@ func (c *ConnPool) NewConnection(res Resolver, dialFunc func(address string) (*d
 			"address": address,
 			"next":    "dialing",
 		},
-		func() string { return fmt.Sprintf("res [%v] connpool [%v]", res, c) },
+		func() string { return fmt.Sprintf("upstream [%v] connpool [%v]", upstream, c) },
 	))
 
 	tlsTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
@@ -153,30 +153,30 @@ func (c *ConnPool) NewConnection(res Resolver, dialFunc func(address string) (*d
 		nil,
 	))
 
-	return &ConnEntry{Conn: conn, resolver: res, totalRTT: dialDuration, exchanges: 1}, nil
+	return &ConnEntry{Conn: conn, upstream: upstream, totalRTT: dialDuration, exchanges: 1}, nil
 }
 
-func (c *ConnPool) getBestResolver() (res Resolver) {
-	// get the first resolver with connections, default to the 0th connection on the list
+func (c *ConnPool) getBestUpstream() (upstream Upstream) {
+	// get the first upstream with connections, default to the 0th connection on the list
 	// iterate through in order since this list is sorted based on weight
-	res = *c.resolvers[0] // start off with the default
-	for _, each := range c.resolvers {
+	upstream = *c.upstreams[0] // start off with the default
+	for _, each := range c.upstreams {
 		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
-			// there were connections here, update res to be the one we want
+			// there were connections here, update upstream to be the one we want
 			return *each
 		}
 	}
-	return res
+	return upstream
 }
 
-func (c *ConnPool) Get() (ce *ConnEntry, res Resolver, err error) {
+func (c *ConnPool) Get() (ce *ConnEntry, upstream Upstream, err error) {
 	c.Lock()
 	defer c.Unlock()
 
-	res = c.getBestResolver()
+	upstream = c.getBestUpstream()
 	// now use the address for whichever one came out, the default one with no connections
-	// or the best weighted resolver with cached connections
-	address := res.GetAddress()
+	// or the best weighted upstream with cached connections
+	address := upstream.GetAddress()
 
 	// Check for an existing connection
 	if conns, ok := c.cache[address]; ok {
@@ -186,12 +186,12 @@ func (c *ConnPool) Get() (ce *ConnEntry, res Resolver, err error) {
 				// pop off a connection and return it
 				ce, c.cache[address] = conns[i], conns[j:]
 				ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
-				return ce, Resolver{}, nil
+				return ce, Upstream{}, nil
 			}
 		}
 	}
-	// we couldn't find a single connection, tell the caller to make a new one to the best weighted resolver
-	return &ConnEntry{}, res, nil
+	// we couldn't find a single connection, tell the caller to make a new one to the best weighted upstream
+	return &ConnEntry{}, upstream, nil
 }
 
 // since this reads all the maps, it needs to make sure there are no concurrent writes
@@ -207,18 +207,18 @@ func (c *ConnPool) Size() int {
 	return size
 }
 
-func (c *ConnPool) AddResolver(r *Resolver) {
-	c.resolvers = append(c.resolvers, r)
-	c.resolverNames = append(c.resolverNames, r.Name)
+func (c *ConnPool) AddUpstream(r *Upstream) {
+	c.upstreams = append(c.upstreams, r)
+	c.upstreamNames = append(c.upstreamNames, r.Name)
 }
 
-func (c *ConnPool) GetResolverNames() (names []ResolverName) {
-	return c.resolverNames
+func (c *ConnPool) GetUpstreamNames() (names []UpstreamName) {
+	return c.upstreamNames
 }
 
 func (c *ConnPool) CloseConnection(ce *ConnEntry) {
 	c.Lock()
 	defer c.Unlock()
-	c.updateResolver(ce)
+	c.updateUpstream(ce)
 	ce.Conn.Close()
 }
