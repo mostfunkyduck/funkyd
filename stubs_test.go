@@ -41,7 +41,7 @@ func (m *StubDnsClient) Dial(address string) (conn *dns.Conn, err error) {
 // builds a stub server, connects to a stub client, returns the stuff
 func BuildStubServer() (Server, *StubDnsClient, error) {
 	testClient := new(StubDnsClient)
-	server, err := NewMutexServer(testClient, InitConnPool())
+	server, err := NewMutexServer(testClient, NewConnPool())
 	if err != nil {
 		return server, testClient, err
 	}

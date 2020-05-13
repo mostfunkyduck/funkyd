@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"math/rand"
 )
 
 var (
@@ -114,6 +115,7 @@ func Shutdown() {
 func main() {
 	flag.Parse()
 	validateFlags()
+	rand.Seed(time.Now().UnixNano())
 
 	log.Printf("reading configuration from [%s]", *confFile)
 	// read in configuration

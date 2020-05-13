@@ -27,9 +27,6 @@ func (response Response) IsExpired(rr dns.RR) bool {
 	return response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
 }
 
-// TODO we could simplify all the expiration logic to have the response iterate through all its records in
-// TODO IsExpired and GetExpirationTime instead of the nested for loop happening to check each record currently
-// TODO that still needs to be fixed so that expiration is more sensitive and granular
 func (r Response) GetExpirationTimeFromRR(rr dns.RR) time.Time {
 	return r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second)
 }
@@ -52,11 +49,9 @@ func (r Response) updateTtl(rr dns.RR) {
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
-			"what": fmt.Sprintf("full ttl of [%v] should be [%f] seconds, cast to uint32, it becomes [%d]", rr, ttl, castTtl),
-			"why":  "updating cached TTL",
-			"next": "performing update",
+			"what":  "updating cached TTL",
 		},
-		nil,
+		func () string { return fmt.Sprintf("rr [%v] ttl [%f] casted ttl [%d]", rr, ttl, castTtl)},
 	))
 	rr.Header().Ttl = uint32(ttl)
 }
@@ -66,18 +61,18 @@ func (r *RecordCache) Size() int {
 }
 
 // can we make it so that this copies the pointers in the response to prevent conflicts
-func (rcache *RecordCache) Add(response Response) {
-	rcache.Lock()
-	defer rcache.Unlock()
+func (r *RecordCache) Add(response Response) {
+	r.Lock()
+	defer r.Unlock()
 
-	rcache.cache[formatKey(response.Key, response.Qtype)] = response
-	CacheSizeGauge.Set(float64(len(rcache.cache)))
+	r.cache[formatKey(response.Key, response.Qtype)] = response
+	CacheSizeGauge.Set(float64(len(r.cache)))
 }
 
-func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
+func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 	// this class will clean the cache as of now, so it needs a write lock
-	rcache.RLock()
-	defer rcache.RUnlock()
+	r.RLock()
+	defer r.RUnlock()
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
@@ -85,84 +80,103 @@ func (rcache *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 		},
 		nil,
 	))
-	response, ok := rcache.cache[formatKey(key, qtype)]
+	response, ok := r.cache[formatKey(key, qtype)]
 	if !ok {
 		Logger.Log(NewLogMessage(INFO, LogContext{"what": "cache miss"}, nil))
 		return Response{}, false
 	}
 
+	// TODO remove this? doesn't seem to be doing anything serious, but who knows?
 	if response.Qtype != qtype {
 		Logger.Log(NewLogMessage(WARNING, LogContext{"what": "mismatched qtype!", "why": fmt.Sprintf("[%d] != [%d]", response.Qtype, qtype)}, nil))
 		return Response{}, false
 	}
 
-	Logger.Log(NewLogMessage(INFO, LogContext{"what": "cache hit!", "next": "validating and assembling response from rr's"}, func() string { return fmt.Sprintf("%v", response) }))
-	// there are records for this domain
+	Logger.Log(NewLogMessage(
+			INFO,
+			LogContext{
+				"what": "cache hit!",
+				"next": "validating and assembling response from rr's",
+			},
+			func() string { return fmt.Sprintf("%v", response) },
+	))
+	// there are records for this domain/qtype
 	for _, rec := range response.Entry.Answer {
 		Logger.Log(NewLogMessage(
 			DEBUG,
 			LogContext{
-				"what": fmt.Sprintf("evaluating validity of record [%v]", rec),
+				"what": "evaluating validity of record",
 				"why":  "assembling response to query",
-				"next": "updating TTL in cache",
+				"next": "evaluating TTL in cache",
 			},
-			func() string { return fmt.Sprintf("%v", response) }))
-		// just in case the clean job hasn't fired, filter out nastiness
+			func() string { return fmt.Sprintf("rec [%v] resp [%v]", rec, response) },
+		))
+		// just in case the clean job hasn't fired, filter out nastiness NB: the clean job is disabled
 		response.updateTtl(rec)
 		if response.IsExpired(rec) {
+			// There is at least one record in this response that's expired
 			// https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should
 			// treat it as if the lowest TTL is the TTL.  A single expiration means that the smallest record is <= its TTL
 
 			// TODO differentiate between synthesized CNAMEs and regular records - CNAMES have long TTLs  since they refer to an A
 			// that's holding the actual value, therefore the synthesized A will die before the CNAME itself.
-			Logger.Log(NewLogMessage(DEBUG, LogContext{"what": "cached entry has expired", "why": "response contains record with expired TTL", "next": "returning cache miss"}, nil))
+			Logger.Log(NewLogMessage(
+				DEBUG,
+				LogContext{
+					"what": "cached entry has expired",
+					"why": "response contains record with expired TTL",
+					"next": "returning cache miss",
+				},
+				nil,
+			))
+			r.evict(response)
 			return Response{}, false
 		}
 	}
-	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": fmt.Sprintf("returning [%v] from cache get", key)}, nil))
+	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": fmt.Sprintf("returning [%s] from cache get", key)}, nil))
 	return response, true
 }
 
 // Removes an entire response from the cache
-func (r *RecordCache) Remove(response Response) error {
+func (r *RecordCache) Remove(response Response) {
 	r.Lock()
 	defer r.Unlock()
 	key := formatKey(response.Key, response.Qtype)
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
-			"what": fmt.Sprintf("removing [%v] from cache using key [%v]", response, key),
-			"next": "deleting from cache",
+			"what": "removing cache entry",
+			"key": key,
 		},
-		nil,
+		func () string{ return fmt.Sprintf("resp [%v] cache [%v]", response, r)},
 	))
 	delete(r.cache, key)
 	CacheSizeGauge.Set(float64(len(r.cache)))
-	return nil
 }
 
-func (rcache *RecordCache) RLock() {
-	rcache.lock.RLock()
+func (r *RecordCache) RLock() {
+	r.lock.RLock()
 }
 
-func (rcache *RecordCache) RUnlock() {
-	rcache.lock.RUnlock()
+func (r *RecordCache) RUnlock() {
+	r.lock.RUnlock()
 }
 
 // can't log before lock, the log function iterates through the map
 // which is a nice, delicious race condition with writes
-func (rcache *RecordCache) Lock() {
-	rcache.lock.Lock()
+func (r *RecordCache) Lock() {
+	r.lock.Lock()
 }
 
-func (rcache *RecordCache) Unlock() {
-	rcache.lock.Unlock()
+func (r *RecordCache) Unlock() {
+	r.lock.Unlock()
 }
 
-func (rcache *RecordCache) Clean() int {
+/** cleaning is currently off, we seem to do well enough without it, TBD a real caching algo **/
+func (r *RecordCache) Clean() int {
 	var records_deleted = 0
-	rcache.Lock()
-	defer rcache.Unlock()
+	r.Lock()
+	defer r.Unlock()
 
 	Logger.Log(NewLogMessage(
 		DEBUG,
@@ -171,12 +185,12 @@ func (rcache *RecordCache) Clean() int {
 			"why":  "cleaning record cache",
 			"next": "iterating through cache",
 		},
-		func() string { return fmt.Sprintf("%v", rcache) },
+		func() string { return fmt.Sprintf("%v", r) },
 	))
 
 	// https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should
 	// treat it as if the lowest TTL is the TTL
-	for key, response := range rcache.cache {
+	for key, response := range r.cache {
 		Logger.Log(NewLogMessage(
 			DEBUG,
 			LogContext{
@@ -198,9 +212,9 @@ func (rcache *RecordCache) Clean() int {
 						"why":  "response has expired records",
 						"next": "continuing cleaning job on next response",
 					},
-					func() string { return fmt.Sprintf("%v", rcache) },
+					func() string { return fmt.Sprintf("%v", r) },
 				))
-				rcache.Remove(response)
+				r.Remove(response)
 				records_deleted++
 				break
 			}
@@ -209,23 +223,15 @@ func (rcache *RecordCache) Clean() int {
 	return records_deleted
 }
 
-// Starts the internal cache clean timer that will periodically prune expired cache entries
-func (rcache *RecordCache) Init() {
-
-	Logger.Log(NewLogMessage(INFO, LogContext{"what": fmt.Sprintf("initializing clean ticket for %d second intervals", 1), "next": "starting ticker"}, nil))
-	ticker := time.NewTicker(1 * time.Hour)
-	go func() {
-		for range ticker.C {
-			rcache.Clean()
-		}
-	}()
-	return
+// spin off a goroutine to contend for the lock and purge the response out of band
+func (r *RecordCache) evict(resp Response)  {
+	go func (response Response) {
+		r.Remove(response)
+	}(resp)
 }
-
 func NewCache() (*RecordCache, error) {
 	ret := &RecordCache{
 		cache: make(map[string]Response),
 	}
-	// ret.Init() keep this outside of the constructor for unit testing
 	return ret, nil
 }

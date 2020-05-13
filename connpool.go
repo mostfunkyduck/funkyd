@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// TODO link that project which sorta inspired this
 
-func (c *ConnEntry) UpdateRTT(rtt time.Duration) {
+// Increment the internal counters tracking successful exchanges and durations
+func (c *ConnEntry) AddExchange(rtt time.Duration) {
 	c.totalRTT += rtt
+	c.exchanges += 1
 }
 
 func (c *ConnEntry) GetAddress() string {
@@ -28,7 +29,7 @@ func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
 	return UpstreamWeight(ce.exchanges) / currentRTT
 }
 
-func InitConnPool() *ConnPool {
+func NewConnPool() *ConnPool {
 	return &ConnPool{
 		cache: make(map[string][]*ConnEntry),
 	}
@@ -145,6 +146,7 @@ func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string
 		FailedConnectionsCounter.WithLabelValues(address).Inc()
 		return &ConnEntry{}, err
 	}
+
 	Logger.Log(NewLogMessage(
 		INFO,
 		LogContext{
@@ -153,7 +155,9 @@ func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string
 		nil,
 	))
 
-	return &ConnEntry{Conn: conn, upstream: upstream, totalRTT: dialDuration, exchanges: 1}, nil
+	ce = &ConnEntry{Conn: conn, upstream: upstream}
+	ce.AddExchange(dialDuration)
+	return ce, nil
 }
 
 func (c *ConnPool) getBestUpstream() (upstream Upstream) {
@@ -210,10 +214,6 @@ func (c *ConnPool) Size() int {
 func (c *ConnPool) AddUpstream(r *Upstream) {
 	c.upstreams = append(c.upstreams, r)
 	c.upstreamNames = append(c.upstreamNames, r.Name)
-}
-
-func (c *ConnPool) GetUpstreamNames() (names []UpstreamName) {
-	return c.upstreamNames
 }
 
 func (c *ConnPool) CloseConnection(ce *ConnEntry) {

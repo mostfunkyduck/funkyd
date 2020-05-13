@@ -28,8 +28,9 @@ type logMessage struct {
 	Level LogLevel
 
 	Context LogContext
+
 	// Verbose details
-	DebugDetails string
+	DebugDetails func () string
 }
 
 // 0 value will disable logging
@@ -61,6 +62,9 @@ func (l logger) Log(message logMessage) {
 		message.Context["level"] = levelToString(message.Level)
 		message.Context["when"] = fmt.Sprintf("%s", time.Now())
 		output := parseKeys(message.Context)
+		if l.level >= DEBUG {
+			message.Context["debug"] = message.DebugDetails()
+		}
 		l.output(output)
 	}
 }
@@ -87,12 +91,10 @@ func levelToString(level LogLevel) string {
 
 // constructor, enforces format
 func NewLogMessage(level LogLevel, context LogContext, debugDetails func() string) logMessage {
-	if level == DEBUG && debugDetails != nil {
-		context["debug"] = debugDetails()
-	}
 	return logMessage{
 		Level:   level,
 		Context: context,
+		DebugDetails: debugDetails,
 	}
 }
 

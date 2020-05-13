@@ -72,33 +72,15 @@ func TestClean(t *testing.T) {
 	}
 }
 
-func BenchmarkCacheAddParallel(b *testing.B) {
-	cache, err := setupCache()
-	if err != nil {
-		b.Fatalf("couldn't set up cache: %s", err.Error())
-	}
-
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			response := setupResponse(1)
-			cache.Add(response)
-		}
-	})
-}
-
-func BenchmarkCacheRemoveParallel(b *testing.B) {
-	max := 10000
-	cache, err := setupCache()
-	if err != nil {
-		b.Fatalf("couldn't set up cache: %s", err.Error())
-	}
+// queues up a channel with $max responses being fed into it by a separate goroutine
+func prepareCacheBenchmark(cache *RecordCache) (c chan Response, expected int) {
+	max := 100000
 	responses := []Response{}
 	// the idea here is to create enough test removals to cause a lot of contention for the lock
 	// note that this test will be run with increasingly higher b.N values until it can be timed
 	for i := 0; i < max; i++ {
 		response := setupResponse(i)
 		responses = append(responses, response)
-		cache.Add(response)
 	}
 	responseChannel := make(chan Response)
 	go func() {
@@ -107,7 +89,39 @@ func BenchmarkCacheRemoveParallel(b *testing.B) {
 		}
 		close(responseChannel)
 	}()
+	return responseChannel, max
+}
 
+func BenchmarkCacheAddParallel(b *testing.B) {
+	cache, err := setupCache()
+	if err != nil {
+		b.Fatalf("couldn't set up cache: %s", err.Error())
+	}
+
+	responseChannel, expected := prepareCacheBenchmark(cache)
+	b.Log("setup complete, starting tests")
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			for response := range responseChannel {
+				cache.Add(response)
+			}
+		}
+	})
+
+	size := cache.Size()
+	if size != expected {
+		b.Fatalf("cache was not expected size! [%d != %d]", size, expected)
+	}
+}
+
+func BenchmarkCacheRemoveParallel(b *testing.B) {
+	cache, err := setupCache()
+	if err != nil {
+		b.Fatalf("couldn't set up cache: %s", err.Error())
+	}
+	responseChannel, expected := prepareCacheBenchmark(cache)
 	b.Log("setup complete, starting tests")
 	b.ResetTimer()
 
@@ -120,6 +134,6 @@ func BenchmarkCacheRemoveParallel(b *testing.B) {
 	})
 
 	if cache.Size() != 0 {
-		b.Fatalf("cache still had entries after removal. cache [%v]", cache)
+		b.Fatalf("cache still had entries after removals. cache [%v] expected removals [%d]", cache, expected)
 	}
 }

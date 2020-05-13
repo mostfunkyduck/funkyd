@@ -7,7 +7,7 @@ import (
 )
 
 func buildPool() *ConnPool {
-	pool := InitConnPool()
+	pool := NewConnPool()
 	pool.AddUpstream(
 		&Upstream{
 			Name: "example.com",

@@ -7,8 +7,6 @@ import (
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/semaphore"
-	"math/rand"
-	"time"
 )
 
 func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error) {
@@ -98,7 +96,7 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 	)
 	reply, _, err = s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
 	exchangeDuration := exchangeTimer.ObserveDuration()
-	ce.UpdateRTT(exchangeDuration)
+	ce.AddExchange(exchangeDuration)
 	if err != nil {
 		s.connPool.CloseConnection(ce)
 		UpstreamErrorsCounter.WithLabelValues(address).Inc()
@@ -156,7 +154,7 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Respons
 			LogContext{
 				"what":      "failed to complete any exchanges with upstreams",
 				"error":     err.Error(),
-				"errornote": "this is the most recent error, other errors may have been logged during the failed attempt(s)",
+				"note": "this is the most recent error, other errors may have been logged during the failed attempt(s)",
 				"address":   domain,
 				"rrtype":    string(rrtype),
 				"next":      "aborting query attempt",
@@ -251,8 +249,9 @@ func (s *MutexServer) HandleDNS(w ResponseWriter, r *dns.Msg) {
 			Logger.Log(NewLogMessage(
 				ERROR,
 				LogContext{
-					"what":  fmt.Sprintf("error retrieving record for domain [%s]", domain),
-					"error": fmt.Sprintf("%s", err),
+					"what":  "error retrieving record for domain",
+					"domain": domain,
+					"error": err.Error(),
 					"next":  "returning SERVFAIL",
 				},
 				func() string { return fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response) },
@@ -286,7 +285,6 @@ func (s *MutexServer) GetConnectionPool() (pool *ConnPool) {
 
 func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
 	// seed the random generator once for upstream shuffling
-	rand.Seed(time.Now().UnixNano())
 
 	config := GetConfiguration()
 	client := cl
@@ -294,37 +292,39 @@ func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
 		var err error
 		client, err = BuildClient()
 		if err != nil {
-			return &MutexServer{}, fmt.Errorf("could not build client [%s]", err)
+			return &MutexServer{}, fmt.Errorf("could not build client [%s]", err.Error())
 		}
 	}
 
 	// TODO this can prbly be simplified
 	var c int64
-	c = int64(config.ConcurrentQueries)
-	if c == 0 {
+	if c = int64(config.ConcurrentQueries); c == 0 {
 		c = 10
 	}
 
 	sem := semaphore.NewWeighted(c)
 
 	if pool == nil {
-		pool = InitConnPool()
+		pool = NewConnPool()
 	}
+
+	newcache, err := NewCache()
+	if err != nil {
+		return nil, fmt.Errorf("couldn't initialize lookup cache: %s", err)
+	}
+
+	hostedcache, err := NewCache()
+	if err != nil {
+		return nil, fmt.Errorf("couldn't initialize hosted cache: %s", err)
+	}
+
 	ret := &MutexServer{
+		Cache: newcache,
+		HostedCache: hostedcache,
 		dnsClient: client,
 		connPool:  pool,
 		sem:       sem,
 	}
-	newcache, err := NewCache()
-	if err != nil {
-		return nil, fmt.Errorf("couldn't initialize lookup cache: %s\n", err)
-	}
-	newcache.Init()
-	ret.Cache = newcache
-
-	hostedcache, err := NewCache()
-	// don't init, we don't clean this one
-	ret.HostedCache = hostedcache
 
 	upstreamNames := config.Upstreams
 	for _, name := range upstreamNames {
