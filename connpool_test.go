@@ -64,6 +64,7 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 		return ResolverName(fmt.Sprintf("entry #%d", i))
 	}
 
+	pool.resolvers = make([]*Resolver, 0)
 	for i := 0; i < max; i++ {
 		name := f(i)
 		pool.AddResolver(&Resolver{
@@ -82,12 +83,12 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 		}
 
 		if err := pool.Add(ce); err != nil {
-			t.Fatalf("error inserting entry [%v] for resolver [%v] on address [%s]: %s", ce, each, each.GetAddress(), err.Error())
+			t.Fatalf("error inserting entry [%v] for resolver [%v] on address [%s]: %s", ce, each, address, err.Error())
 		}
 	}
 
 	for i := 0; i < max; i++ {
-		ce, res, err := pool.Get()
+		_, res, err := pool.Get()
 		if err != nil {
 			t.Fatalf("error retrieving entry [%d] from pool [%v]: [%s]", i, pool, err)
 		}
@@ -95,15 +96,8 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 		if (res != Resolver{}) {
 			t.Fatalf("tried to retrieve connection from pool, got prompted to make a connection instead. size: [%d], pool: [%v], res: [%v] entry: [%d]", pool.Size(), pool, res, i)
 		}
-
-		resolverNamesSeen[ce.resolver.Name] = true
 	}
 
-	for name, seen := range resolverNamesSeen {
-		if !seen {
-			t.Fatalf("[%s] was inserted into the pool, but was not taken out while getting all connections from the pool! this means that the pool is prompting for new connections before it finishes cleaning out existing ones", name)
-		}
-	}
 }
 
 func TestIllegalResolverAddition(t *testing.T) {
@@ -143,13 +137,18 @@ func TestConnectionPoolSize(t *testing.T) {
 	}
 }
 
-func resTestingDialer(res Resolver, b *testing.B) func(addr string) (conn *dns.Conn, err error) {
-	expectedAddress := res.GetAddress()
-	return func(addr string) (conn *dns.Conn, err error) {
-		if addr != expectedAddress {
-			b.Errorf("got unexpected address [%s] when dialing resolver [%v], expecting address [%s] to be dialed", addr, res, expectedAddress)
-		}
-		return &dns.Conn{}, nil
+func TestConnectionPoolWeighting(t *testing.T) {
+	pool := buildPool()
+	res := &Resolver{Name: "example.com"}
+	pool.AddResolver(res)
+
+	ce, err := pool.NewConnection(*res, ResTestingDialer(*res))
+	if err != nil {
+		t.Fatalf("could not make connection with resolver [%v]: %s", res, err)
+	}
+	weight := ce.GetWeight()
+	if ce.GetWeight() <= 0 {
+		t.Fatalf("weight on new connection was wrong: [%f] <= 0", weight)
 	}
 }
 
@@ -167,7 +166,7 @@ func BenchmarkConnectionParallel(b *testing.B) {
 				Port: i,
 				Name: "example.com",
 			}
-			pool.NewConnection(res, resTestingDialer(res, b))
+			pool.NewConnection(res, ResTestingDialer(res))
 			i++
 		}
 	})

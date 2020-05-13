@@ -11,57 +11,67 @@ import (
 	"time"
 )
 
+func (s *MutexServer) newConnection(res Resolver) (ce *ConnEntry, err error) {
+	// we're supposed to connect to this resolver, no existing connections
+	// (this doesn't block)
+	ce, err = s.connPool.NewConnection(res, s.dnsClient.Dial)
+	if err != nil {
+		// leaving this at DEBUG since we're passing the actual error up
+		address := res.GetAddress()
+		Logger.Log(NewLogMessage(
+			DEBUG,
+			LogContext{
+				"error":   err.Error(),
+				"what":    "could not make new connection to resolver",
+				"address": address,
+			},
+			func() string { return fmt.Sprintf("res:[%v]", res) },
+		))
+		return &ConnEntry{}, fmt.Errorf("could not connect to upstream (%s): %s", address, err.Error())
+	}
+	return
+}
+
 func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
+	// There are 3 cases: cache miss, cache hit, and error
+	// responses:
+	// 	cache miss, no error: attempt to make a new connection
+	//  cache hit: return the conn entry
+	//  error: return the error and an empty conn entry
 	// first check the conn pool (this blocks)
 	ce, res, err := s.connPool.Get()
-	if err == nil {
-		// either a cache hit in the connection pool or a non-fatal cache miss, requiring a new connection
-		if (res != Resolver{}) {
-			Logger.Log(NewLogMessage(
-				INFO,
-				LogContext{
-					"what":    "creating new connection",
-					"address": res.GetAddress(),
-				},
-				nil,
-			))
-			// we're supposed to connect to this resolver, no existing connections
-			// (this doesn't block)
-			ce, err = s.connPool.NewConnection(res, s.dnsClient.Dial)
-			if err != nil {
-				Logger.Log(NewLogMessage(
-					ERROR,
-					LogContext{
-						"error":   err.Error(),
-						"what":    "could not make new connection to resolver",
-						"address": res.GetAddress(),
-					},
-					func() string { return fmt.Sprintf("res:[%v]", res) },
-				))
-				return ce, fmt.Errorf("could not make new connection to [%s]: %s", res.GetAddress(), err.Error())
-			}
-		}
-
-		address := ce.GetAddress()
-		ReusedConnectionsCounter.WithLabelValues(address).Inc()
+	if err == nil && (res != Resolver{}) {
+		// cache miss, no error
 		Logger.Log(NewLogMessage(
 			INFO,
 			LogContext{
-				"what": fmt.Sprintf("got connection to [%s] from connection pool", address),
-				"next": "using stored connection",
+				"what":    "creating new connection",
+				"address": res.GetAddress(),
 			},
-			nil,
+			func() string { return fmt.Sprintf("res [%v]", res) },
 		))
-		return ce, nil
+
+		if ce, err = s.newConnection(res); err != nil {
+			return &ConnEntry{}, err
+		}
+	} else if err != nil {
+		// error
+		return &ConnEntry{}, err
 	}
+
+	// cache hit
+	address := ce.GetAddress()
+	ReusedConnectionsCounter.WithLabelValues(address).Inc()
 	Logger.Log(NewLogMessage(
 		INFO,
 		LogContext{
-			"what": "connection pool cache miss",
+			"what":    "got connection to from connection pool",
+			"address": address,
+			"next":    "using stored connection",
 		},
 		nil,
 	))
-	return &ConnEntry{}, err
+	return ce, nil
 }
 
 func (s *MutexServer) AddResolver(r *Resolver) {

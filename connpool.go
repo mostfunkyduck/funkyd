@@ -19,13 +19,13 @@ func (c *ConnEntry) GetAddress() string {
 }
 
 func (ce *ConnEntry) GetWeight() (weight ResolverWeight) {
-	currentRTT := int64(ce.totalRTT * time.Millisecond)
+	currentRTT := ResolverWeight(ce.totalRTT * time.Millisecond)
 	if currentRTT == 0 {
 		// this is the highest possible weight, this connection hasn't seen any action and will
 		// jump to the top
 		return 0
 	}
-	return ResolverWeight(int64(ce.exchanges) / currentRTT)
+	return ResolverWeight(ce.exchanges) / currentRTT
 }
 
 func InitConnPool() *ConnPool {
@@ -71,6 +71,7 @@ func (c *ConnPool) sortResolvers() {
 // updates a resolver's weight based on a conn entry being added or closed
 func (c *ConnPool) updateResolver(ce *ConnEntry) (err error) {
 	address := ce.GetAddress()
+	// get the actual pointer for this ce's upstream
 	res, err := c.GetResolverByAddress(address)
 	if err != nil {
 		return fmt.Errorf("could not add conn entry with address [%s]: %s", address, err.Error())
@@ -152,11 +153,7 @@ func (c *ConnPool) NewConnection(res Resolver, dialFunc func(address string) (*d
 		nil,
 	))
 
-	return &ConnEntry{Conn: conn, resolver: res, totalRTT: dialDuration}, nil
-}
-
-func (c *ConnPool) getNextAddress() (address string) {
-	return c.resolvers[0].GetAddress()
+	return &ConnEntry{Conn: conn, resolver: res, totalRTT: dialDuration, exchanges: 1}, nil
 }
 
 func (c *ConnPool) getBestResolver() (res Resolver) {
@@ -166,10 +163,10 @@ func (c *ConnPool) getBestResolver() (res Resolver) {
 	for _, each := range c.resolvers {
 		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
 			// there were connections here, update res to be the one we want
-			res = *each
+			return *each
 		}
 	}
-	return
+	return res
 }
 
 func (c *ConnPool) Get() (ce *ConnEntry, res Resolver, err error) {
@@ -189,13 +186,12 @@ func (c *ConnPool) Get() (ce *ConnEntry, res Resolver, err error) {
 				// pop off a connection and return it
 				ce, c.cache[address] = conns[i], conns[j:]
 				ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
-				ce.exchanges += 1
 				return ce, Resolver{}, nil
 			}
 		}
 	}
 	// we couldn't find a single connection, tell the caller to make a new one to the best weighted resolver
-	return &ConnEntry{}, *c.resolvers[0], nil
+	return &ConnEntry{}, res, nil
 }
 
 // since this reads all the maps, it needs to make sure there are no concurrent writes
