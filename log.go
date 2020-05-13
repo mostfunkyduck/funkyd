@@ -62,7 +62,7 @@ func (l logger) Log(message logMessage) {
 		message.Context["level"] = levelToString(message.Level)
 		message.Context["when"] = fmt.Sprintf("%s", time.Now())
 		output := parseKeys(message.Context)
-		if l.level >= DEBUG {
+		if l.level >= DEBUG && message.DebugDetails != nil {
 			message.Context["debug"] = message.DebugDetails()
 		}
 		l.output(output)
