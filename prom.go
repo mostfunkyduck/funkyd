@@ -8,6 +8,12 @@ import (
 )
 
 var (
+	ResolverWeightGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "funkyd_resolver_weight_gauge",
+		Help: "the weights of the resolvers in the system, only meaningful when broken down per address",
+	},
+		[]string{"address"},
+	)
 	ConnPoolSizeGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "funkyd_conn_pool_size",
 		Help: "the total size of the connection pool, labelled by destination host",

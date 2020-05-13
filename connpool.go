@@ -58,6 +58,7 @@ func (c *ConnPool) GetResolverByAddress(address string) (resolver *Resolver, err
 // when the connection pool is already locked and needs to update its resolver weights
 func (c *ConnPool) weightResolver(res *Resolver, ce ConnEntry) {
 	res.Weight = ce.GetWeight()
+	ResolverWeightGauge.WithLabelValues(res.GetAddress()).Set(float64(res.Weight))
 }
 
 // arranges the resolvers based on weight
@@ -87,8 +88,18 @@ func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 	defer c.Unlock()
 
 	address := ce.GetAddress()
-	c.updateResolver(ce)
-  // TODO handle error, it can't stop things, but we should know
+	if err = c.updateResolver(ce); err != nil {
+		err = fmt.Errorf("couldn't update resolver weight on connection to [%s]: %s", address, err.Error())
+	}
+	Logger.Log(NewLogMessage(
+		INFO,
+		LogContext{
+			"what":    "adding connection back to conn pool",
+			"address": address,
+		},
+		func() string { return fmt.Sprintf("connection entry [%v]", ce) },
+	))
+	// TODO handle error, it can't stop things, but we should know
 
 	if _, ok := c.cache[address]; ok {
 		c.cache[address] = append(c.cache[address], ce)

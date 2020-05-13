@@ -315,6 +315,7 @@ func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
 	hostedcache, err := NewCache()
 	// don't init, we don't clean this one
 	ret.HostedCache = hostedcache
+
 	resolverNames := config.Resolvers
 	for _, name := range resolverNames {
 		ret.AddResolver(&Resolver{

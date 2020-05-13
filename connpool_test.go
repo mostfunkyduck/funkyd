@@ -152,6 +152,7 @@ func resTestingDialer(res Resolver, b *testing.B) func(addr string) (conn *dns.C
 		return &dns.Conn{}, nil
 	}
 }
+
 func BenchmarkConnectionParallel(b *testing.B) {
 	server, _, err := BuildStubServer()
 	if err != nil {
@@ -173,15 +174,21 @@ func BenchmarkConnectionParallel(b *testing.B) {
 
 }
 
+/** This seems to brick the benchmark framework, it keeps retrying until so many
+    tests are in motion that the box freezes.  I don't think it's worth the pain
+    of maintaining it, so i'm leaving it commented out.
 func BenchmarkConnectionSerial(b *testing.B) {
 	server, _, err := buildTestResources()
 	if err != nil {
 		b.Fatalf("could not initialize server [%s]", err)
 	}
-	res := Resolver{
-		Name: "example.com",
-	}
+	pool := server.GetConnectionPool()
 	for i := 0; i < b.N; i++ {
-		server.GetConnectionPool().NewConnection(res, resTestingDialer(res, b))
+		res := Resolver{
+			Name: "example.com",
+			Port: i,
+		}
+		pool.NewConnection(res, resTestingDialer(res, b))
 	}
 }
+**/
