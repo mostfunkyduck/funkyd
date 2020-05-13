@@ -43,7 +43,7 @@ type Configuration struct {
 	// Port to expose admin API on
 	HttpPort int `json:"http_port"`
 
-	// Maximum concurrent queries
+	// Force a maximum number of concurrent queries, 0 value will set this to GOMAXPROCS
 	ConcurrentQueries int `json:"concurrent_queries"`
 
 	// Server logging

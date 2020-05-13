@@ -2,6 +2,7 @@ package main
 
 // The mutex server uses traditional concurrency controls
 import (
+	"runtime"
 	"context"
 	"fmt"
 	"github.com/miekg/dns"
@@ -296,11 +297,19 @@ func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
 		}
 	}
 
-	// TODO this can prbly be simplified
 	var c int64
 	if c = int64(config.ConcurrentQueries); c == 0 {
-		c = 10
+		c = int64(runtime.GOMAXPROCS(0))
 	}
+
+	Logger.Log(NewLogMessage(
+		INFO,
+		LogContext {
+			"what": "creating server worker pool",
+			"concurrency": string(c),
+		},
+		nil,
+	))
 
 	sem := semaphore.NewWeighted(c)
 
