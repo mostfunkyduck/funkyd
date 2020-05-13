@@ -20,10 +20,13 @@ func (c *ConnEntry) GetAddress() string {
 }
 
 func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
+	// it should be that (0 < weight < 1) in most normal circumstances,
+	// if weight goes over 1, it means that the total exchanges is higher than the total
+	// number of ms that the connection has been active - not a normal situation unless
+	// the connection is blazing fast
 	currentRTT := UpstreamWeight(ce.totalRTT * time.Millisecond)
 	if currentRTT == 0 {
-		// this is the highest possible weight, this connection hasn't seen any action and will
-		// jump to the top
+		// this connection hasn't seen any actual connection time, no weight
 		return 0
 	}
 	return UpstreamWeight(ce.exchanges) / currentRTT
