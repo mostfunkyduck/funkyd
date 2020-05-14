@@ -20,16 +20,24 @@ func (c *ConnEntry) GetAddress() string {
 }
 
 func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
-	// it should be that (0 < weight < 1) in most normal circumstances,
-	// if weight goes over 1, it means that the total exchanges is higher than the total
-	// number of ms that the connection has been active - not a normal situation unless
-	// the connection is blazing fast
-	currentRTT := UpstreamWeight(ce.totalRTT * time.Millisecond)
-	if currentRTT == 0 {
+	currentRTT := UpstreamWeight(ce.totalRTT / time.Millisecond)
+	weight = currentRTT / UpstreamWeight(ce.exchanges)
+	Logger.Log(NewLogMessage(
+		INFO,
+		LogContext {
+			"what": "setting weight on connection",
+			"connection_address": ce.GetAddress(),
+			"currentRTT": fmt.Sprintf("%f", currentRTT),
+			"exchanges": string(ce.exchanges),
+			"new_weight": fmt.Sprintf("%f", weight),
+		},
+		func () string { return fmt.Sprintf("upstream [%v] connection [%v]", ce.upstream, ce) },
+	))
+	if currentRTT == 0.0 || ce.exchanges == 0 {
 		// this connection hasn't seen any actual connection time, no weight
-		return 0
+		weight = 0
 	}
-	return UpstreamWeight(ce.exchanges) / currentRTT
+	return
 }
 
 func NewConnPool() *ConnPool {
@@ -141,6 +149,7 @@ func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string
 		INFO,
 		LogContext{
 			"what":    "making new connection",
+			"weight": fmt.Sprintf("%f", upstream.GetWeight()),
 			"address": address,
 			"next":    "dialing",
 		},
