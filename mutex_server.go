@@ -96,9 +96,9 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 		ExchangeTimer.WithLabelValues(address).Observe(v)
 	}),
 	)
-	reply, _, err = s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
-	exchangeDuration := exchangeTimer.ObserveDuration()
-	ce.AddExchange(exchangeDuration)
+	reply, rtt, err := s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
+	exchangeTimer.ObserveDuration()
+	ce.AddExchange(rtt)
 	if err != nil {
 		s.connPool.CloseConnection(ce)
 		UpstreamErrorsCounter.WithLabelValues(address).Inc()
