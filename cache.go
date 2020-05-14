@@ -225,6 +225,8 @@ func (r *RecordCache) Clean() int {
 
 // spin off a goroutine to contend for the lock and purge the response out of band
 func (r *RecordCache) evict(resp Response)  {
+	// TODO make this into a channel-reading gr instead of allowing for unbounded spawning of eviction grs
+	// TODO perhaps combine it with Clean()
 	go func (response Response) {
 		r.Remove(response)
 	}(resp)

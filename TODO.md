@@ -23,7 +23,7 @@
    TCP connection after sending a single request (apart from the SOA/
    AXFR case).
   ```
-  * pipelining
+  * pipelining (https://github.com/golang/go/issues/4842#issuecomment-456706304)
   ```
      In order to achieve performance on par with UDP, DNS clients SHOULD
    pipeline their queries.  When a DNS client sends multiple queries to

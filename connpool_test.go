@@ -139,8 +139,9 @@ func TestConnectionPoolSize(t *testing.T) {
 
 func TestConnectionPoolWeighting(t *testing.T) {
 	pool := buildPool()
-	upstream := &Upstream{Name: "example.com"}
+	upstream, upstream1 := &Upstream{Name: "example.com"}, &Upstream{Name: "test.example.com"}
 	pool.AddUpstream(upstream)
+	pool.AddUpstream(upstream1)
 
 	ce, err := pool.NewConnection(*upstream, UpstreamTestingDialer(*upstream))
 	if err != nil {
@@ -157,10 +158,20 @@ func TestConnectionPoolWeighting(t *testing.T) {
 		t.Fatalf("got error trying to add ce [%v] to pool [%v]: %s", ce, pool, err.Error())
 	}
 
-	if upstreamWeight, ceWeight := upstream.GetWeight(), ce.GetWeight(); upstreamWeight != ceWeight {
-		t.Fatalf("[%f] != [%f]", upstreamWeight, ceWeight)
+	// Once a connection is in the pool, does it get returned or does the pool prompt for additional connections?
+	// this also tests that lower weighted resolvers don't take precedence over ones with connections
+	ce2, upstream2, err := pool.Get()
+	if (upstream2 != Upstream{}) {
+		t.Fatalf("expected to receive cached connection, got prompted to connect to [%v] instead", upstream2)
+	}
+
+	if ce2Addr, upstreamAddr := ce2.GetAddress(), upstream.GetAddress(); ce2Addr != upstreamAddr {
+		t.Fatalf("got connection to different upstream [%s] when a connection to [%s] was expected", ce2Addr, upstreamAddr)
 	}
 }
+
+
+/** BENCHMARKS **/
 
 func BenchmarkConnectionParallel(b *testing.B) {
 	server, _, err := BuildStubServer()
