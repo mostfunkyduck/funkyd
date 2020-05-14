@@ -79,8 +79,9 @@ func (c *ConnPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 // Will return the most preferable upstream based on weight
 func (c *ConnPool) getBestUpstream() (upstream Upstream) {
 	// get the first upstream with connections, default to the 0th connection on the list
-	// iterate through in order since this list is sorted based on weight
+	// iterate through in order; this list is sorted based on weight
 	upstream = *c.upstreams[0] // start off with the default
+	// goal: find the highest lowest weighted upstream with connections
 	for _, each := range c.upstreams {
 		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
 			// is this upstream's weight more than double the best upstream?
@@ -98,7 +99,7 @@ func (c *ConnPool) getBestUpstream() (upstream Upstream) {
 						c.CloseConnection(conn)
 					}(conn)
 				}
-				// let's return the best one
+				// let's return the best one, nothing else useable has connections
 				return upstream
 			}
 			// there were connections here, let's reuse them
