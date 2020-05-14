@@ -83,7 +83,8 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 		Logger.Log(NewLogMessage(
 			ERROR,
 			LogContext{
-				"error": fmt.Sprintf("error getting connection from pool: [%s]", err),
+				"what": "error getting connection from pool",
+				"error": err.Error(),
 				"next":  "aborting exchange attempt"},
 			nil,
 		))
@@ -165,13 +166,12 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Respons
 		return Response{}, "", fmt.Errorf("failed to complete any exchanges with upstreams: %s", err)
 	}
 
-	err = s.connPool.Add(ce)
-	if err != nil {
+	if err := s.connPool.Add(ce); err != nil {
 		Logger.Log(NewLogMessage(
 			ERROR,
 			LogContext{
 				"what": "could not add connection entry to pool (enable debug logging for variable value)!",
-				"why":  fmt.Sprintf("%s", err),
+				"error": err.Error(),
 				"next": "continuing without cache, disregarding error",
 			},
 			func() string { return fmt.Sprintf("ce: [%v]", ce) },

@@ -19,7 +19,7 @@ type Upstream struct {
 	Port int
 
 	// The current weight score of this upstream
-	Weight UpstreamWeight
+	weight UpstreamWeight
 }
 
 // making this to support dependency injection into the server

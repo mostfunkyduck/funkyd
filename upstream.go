@@ -11,3 +11,11 @@ func (u *Upstream) GetAddress() string {
 	}
 	return fmt.Sprintf("%s:%d", u.Name, port)
 }
+
+func (u *Upstream) GetWeight() UpstreamWeight {
+	return u.weight
+}
+
+func (u *Upstream) SetWeight(w UpstreamWeight) {
+	u.weight = w
+}

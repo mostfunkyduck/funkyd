@@ -61,14 +61,32 @@ func (c *ConnPool) GetUpstreamByAddress(address string) (upstream *Upstream, err
 // WARNING: this function is not reentrant, it is meant to be called internally
 // when the connection pool is already locked and needs to update its upstream weights
 func (c *ConnPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
-	upstream.Weight = ce.GetWeight()
-	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress()).Set(float64(upstream.Weight))
+	// the upstream weight will be the result of the most recent connection:
+	// we want to prefer the upstream with the fastest connections and 
+	// ditch them when they start to slow down
+	upstream.SetWeight(ce.GetWeight())
+	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress()).Set(float64(upstream.GetWeight()))
 }
+
+// Will return the most preferable upstream based on weight
+func (c *ConnPool) getBestUpstream() (upstream Upstream) {
+	// get the first upstream with connections, default to the 0th connection on the list
+	// iterate through in order since this list is sorted based on weight
+	upstream = *c.upstreams[0] // start off with the default
+	for _, each := range c.upstreams {
+		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
+			// there were connections here, let's reuse them
+			return *each
+		}
+	}
+	return upstream
+}
+
 
 // arranges the upstreams based on weight
 func (c *ConnPool) sortUpstreams() {
 	sort.SliceStable(c.upstreams, func(i, j int) bool {
-		return c.upstreams[i].Weight < c.upstreams[j].Weight
+		return c.upstreams[i].GetWeight() < c.upstreams[j].GetWeight()
 	})
 }
 
@@ -87,7 +105,7 @@ func (c *ConnPool) updateUpstream(ce *ConnEntry) (err error) {
 	return
 }
 
-// adds a connection to the cache, returns whether or not it could be added and an error
+// adds a connection to the cache
 func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 	c.Lock()
 	defer c.Unlock()
@@ -153,7 +171,8 @@ func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string
 	Logger.Log(NewLogMessage(
 		INFO,
 		LogContext{
-			"what": fmt.Sprintf("connection to %s successful", address),
+			"what": "connection successful",
+			"address": address,
 		},
 		nil,
 	))
@@ -163,19 +182,8 @@ func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string
 	return ce, nil
 }
 
-func (c *ConnPool) getBestUpstream() (upstream Upstream) {
-	// get the first upstream with connections, default to the 0th connection on the list
-	// iterate through in order since this list is sorted based on weight
-	upstream = *c.upstreams[0] // start off with the default
-	for _, each := range c.upstreams {
-		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
-			// there were connections here, update upstream to be the one we want
-			return *each
-		}
-	}
-	return upstream
-}
-
+// attempts to retrieve a connection from the most attractive upstream
+// if it doesn't have one, returns an upstream for the caller to connect to
 func (c *ConnPool) Get() (ce *ConnEntry, upstream Upstream, err error) {
 	c.Lock()
 	defer c.Unlock()
@@ -186,15 +194,13 @@ func (c *ConnPool) Get() (ce *ConnEntry, upstream Upstream, err error) {
 	address := upstream.GetAddress()
 
 	// Check for an existing connection
-	if conns, ok := c.cache[address]; ok {
-		if len(conns) > 0 {
-			for i := 0; i < len(conns); i++ {
-				j := i + 1
-				// pop off a connection and return it
-				ce, c.cache[address] = conns[i], conns[j:]
-				ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
-				return ce, Upstream{}, nil
-			}
+	if conns, ok := c.cache[address]; ok && len(conns) > 0 {
+		for i := 0; i < len(conns); i++ {
+			j := i + 1
+			// pop off a connection and return it
+			ce, c.cache[address] = conns[i], conns[j:]
+			ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
+			return ce, Upstream{}, nil
 		}
 	}
 	// we couldn't find a single connection, tell the caller to make a new one to the best weighted upstream

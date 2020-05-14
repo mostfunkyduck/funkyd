@@ -142,13 +142,23 @@ func TestConnectionPoolWeighting(t *testing.T) {
 	upstream := &Upstream{Name: "example.com"}
 	pool.AddUpstream(upstream)
 
-	ce, err := pool.NewConnection(*upstream, ResTestingDialer(*upstream))
+	ce, err := pool.NewConnection(*upstream, UpstreamTestingDialer(*upstream))
 	if err != nil {
 		t.Fatalf("could not make connection with upstream [%v]: %s", upstream, err)
 	}
 	weight := ce.GetWeight()
+
 	if ce.GetWeight() <= 0 {
 		t.Fatalf("weight on new connection was wrong: [%f] <= 0", weight)
+	}
+
+
+	if err := pool.Add(ce); err != nil {
+		t.Fatalf("got error trying to add ce [%v] to pool [%v]: %s", ce, pool, err.Error())
+	}
+
+	if upstreamWeight, ceWeight := upstream.GetWeight(), ce.GetWeight(); upstreamWeight != ceWeight {
+		t.Fatalf("[%f] != [%f]", upstreamWeight, ceWeight)
 	}
 }
 
@@ -166,7 +176,7 @@ func BenchmarkConnectionParallel(b *testing.B) {
 				Port: i,
 				Name: "example.com",
 			}
-			pool.NewConnection(upstream, ResTestingDialer(upstream))
+			pool.NewConnection(upstream, UpstreamTestingDialer(upstream))
 			i++
 		}
 	})
@@ -187,7 +197,7 @@ func BenchmarkConnectionSerial(b *testing.B) {
 			Name: "example.com",
 			Port: i,
 		}
-		pool.NewConnection(upstream, resTestingDialer(upstream, b))
+		pool.NewConnection(upstream, UpstreamTestingDialer(upstream))
 	}
 }
 **/
