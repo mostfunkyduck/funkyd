@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-
 // Increment the internal counters tracking successful exchanges and durations
 func (c *ConnEntry) AddExchange(rtt time.Duration) {
 	c.totalRTT += rtt
@@ -20,16 +19,25 @@ func (c *ConnEntry) GetAddress() string {
 }
 
 func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
-	// it should be that (0 < weight < 1) in most normal circumstances,
-	// if weight goes over 1, it means that the total exchanges is higher than the total
-	// number of ms that the connection has been active - not a normal situation unless
-	// the connection is blazing fast
-	currentRTT := UpstreamWeight(ce.totalRTT * time.Millisecond)
-	if currentRTT == 0 {
+	currentRTT := UpstreamWeight(ce.totalRTT / time.Millisecond)
+	if currentRTT == 0.0 || ce.exchanges == 0 {
 		// this connection hasn't seen any actual connection time, no weight
-		return 0
+		weight = 0
+	} else {
+		weight = currentRTT / UpstreamWeight(ce.exchanges)
 	}
-	return UpstreamWeight(ce.exchanges) / currentRTT
+	Logger.Log(NewLogMessage(
+		INFO,
+		LogContext{
+			"what":               "setting weight on connection",
+			"connection_address": ce.GetAddress(),
+			"currentRTT":         fmt.Sprintf("%f", currentRTT),
+			"exchanges":          fmt.Sprintf("f", UpstreamWeight(ce.exchanges)),
+			"new_weight":         fmt.Sprintf("%f", weight),
+		},
+		func() string { return fmt.Sprintf("upstream [%v] connection [%v]", ce.upstream, ce) },
+	))
+	return
 }
 
 func NewConnPool() *ConnPool {
@@ -62,7 +70,7 @@ func (c *ConnPool) GetUpstreamByAddress(address string) (upstream *Upstream, err
 // when the connection pool is already locked and needs to update its upstream weights
 func (c *ConnPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 	// the upstream weight will be the result of the most recent connection:
-	// we want to prefer the upstream with the fastest connections and 
+	// we want to prefer the upstream with the fastest connections and
 	// ditch them when they start to slow down
 	upstream.SetWeight(ce.GetWeight())
 	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress()).Set(float64(upstream.GetWeight()))
@@ -71,10 +79,29 @@ func (c *ConnPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 // Will return the most preferable upstream based on weight
 func (c *ConnPool) getBestUpstream() (upstream Upstream) {
 	// get the first upstream with connections, default to the 0th connection on the list
-	// iterate through in order since this list is sorted based on weight
+	// iterate through in order; this list is sorted based on weight
 	upstream = *c.upstreams[0] // start off with the default
+	// goal: find the highest lowest weighted upstream with connections
 	for _, each := range c.upstreams {
 		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
+			// is this upstream's weight more than double the best upstream?
+			if upstream.GetWeight()*2 < each.GetWeight() {
+				// this upstream is way too heavy, and all the previous ones had no connections
+				// close all it's connections and let it cool down until we need it
+				for _, conn := range conns {
+					// do it async to avoid excessive blocking
+					// FIXME there's a slight race here, the upstream's weight will get reset
+					// FIXME each time we close a connection.  This means that there could be connections made
+					// FIXME during the teardown if it gets a better weight from one of the connections
+					// FIXME this isn't so bad, worst case scenario, we get some faster connections
+					// FIXME on the slow server
+					go func(conn *ConnEntry) {
+						c.CloseConnection(conn)
+					}(conn)
+				}
+				// let's return the best one, nothing else useable has connections
+				return upstream
+			}
 			// there were connections here, let's reuse them
 			return *each
 		}
@@ -82,10 +109,9 @@ func (c *ConnPool) getBestUpstream() (upstream Upstream) {
 	return upstream
 }
 
-
 // arranges the upstreams based on weight
 func (c *ConnPool) sortUpstreams() {
-	sort.SliceStable(c.upstreams, func(i, j int) bool {
+	sort.Slice(c.upstreams, func(i, j int) bool {
 		return c.upstreams[i].GetWeight() < c.upstreams[j].GetWeight()
 	})
 }
@@ -141,6 +167,7 @@ func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string
 		INFO,
 		LogContext{
 			"what":    "making new connection",
+			"weight":  fmt.Sprintf("%f", upstream.GetWeight()),
 			"address": address,
 			"next":    "dialing",
 		},
@@ -171,7 +198,7 @@ func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string
 	Logger.Log(NewLogMessage(
 		INFO,
 		LogContext{
-			"what": "connection successful",
+			"what":    "connection successful",
 			"address": address,
 		},
 		nil,

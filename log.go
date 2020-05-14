@@ -30,7 +30,7 @@ type logMessage struct {
 	Context LogContext
 
 	// Verbose details
-	DebugDetails func () string
+	DebugDetails func() string
 }
 
 // 0 value will disable logging
@@ -92,8 +92,8 @@ func levelToString(level LogLevel) string {
 // constructor, enforces format
 func NewLogMessage(level LogLevel, context LogContext, debugDetails func() string) logMessage {
 	return logMessage{
-		Level:   level,
-		Context: context,
+		Level:        level,
+		Context:      context,
 		DebugDetails: debugDetails,
 	}
 }

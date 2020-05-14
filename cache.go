@@ -49,9 +49,9 @@ func (r Response) updateTtl(rr dns.RR) {
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
-			"what":  "updating cached TTL",
+			"what": "updating cached TTL",
 		},
-		func () string { return fmt.Sprintf("rr [%v] ttl [%f] casted ttl [%d]", rr, ttl, castTtl)},
+		func() string { return fmt.Sprintf("rr [%v] ttl [%f] casted ttl [%d]", rr, ttl, castTtl) },
 	))
 	rr.Header().Ttl = uint32(ttl)
 }
@@ -93,12 +93,12 @@ func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 	}
 
 	Logger.Log(NewLogMessage(
-			INFO,
-			LogContext{
-				"what": "cache hit!",
-				"next": "validating and assembling response from rr's",
-			},
-			func() string { return fmt.Sprintf("%v", response) },
+		INFO,
+		LogContext{
+			"what": "cache hit!",
+			"next": "validating and assembling response from rr's",
+		},
+		func() string { return fmt.Sprintf("%v", response) },
 	))
 	// there are records for this domain/qtype
 	for _, rec := range response.Entry.Answer {
@@ -124,7 +124,7 @@ func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 				DEBUG,
 				LogContext{
 					"what": "cached entry has expired",
-					"why": "response contains record with expired TTL",
+					"why":  "response contains record with expired TTL",
 					"next": "returning cache miss",
 				},
 				nil,
@@ -146,9 +146,9 @@ func (r *RecordCache) Remove(response Response) {
 		DEBUG,
 		LogContext{
 			"what": "removing cache entry",
-			"key": key,
+			"key":  key,
 		},
-		func () string{ return fmt.Sprintf("resp [%v] cache [%v]", response, r)},
+		func() string { return fmt.Sprintf("resp [%v] cache [%v]", response, r) },
 	))
 	delete(r.cache, key)
 	CacheSizeGauge.Set(float64(len(r.cache)))
@@ -224,10 +224,10 @@ func (r *RecordCache) Clean() int {
 }
 
 // spin off a goroutine to contend for the lock and purge the response out of band
-func (r *RecordCache) evict(resp Response)  {
+func (r *RecordCache) evict(resp Response) {
 	// TODO make this into a channel-reading gr instead of allowing for unbounded spawning of eviction grs
 	// TODO perhaps combine it with Clean()
-	go func (response Response) {
+	go func(response Response) {
 		r.Remove(response)
 	}(resp)
 }

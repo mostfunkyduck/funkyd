@@ -2,12 +2,12 @@ package main
 
 // The mutex server uses traditional concurrency controls
 import (
-	"runtime"
 	"context"
 	"fmt"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/semaphore"
+	"runtime"
 )
 
 func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error) {
@@ -83,7 +83,7 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 		Logger.Log(NewLogMessage(
 			ERROR,
 			LogContext{
-				"what": "error getting connection from pool",
+				"what":  "error getting connection from pool",
 				"error": err.Error(),
 				"next":  "aborting exchange attempt"},
 			nil,
@@ -154,12 +154,12 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Respons
 		Logger.Log(NewLogMessage(
 			ERROR,
 			LogContext{
-				"what":      "failed to complete any exchanges with upstreams",
-				"error":     err.Error(),
-				"note": "this is the most recent error, other errors may have been logged during the failed attempt(s)",
-				"address":   domain,
-				"rrtype":    string(rrtype),
-				"next":      "aborting query attempt",
+				"what":    "failed to complete any exchanges with upstreams",
+				"error":   err.Error(),
+				"note":    "this is the most recent error, other errors may have been logged during the failed attempt(s)",
+				"address": domain,
+				"rrtype":  string(rrtype),
+				"next":    "aborting query attempt",
 			},
 			nil,
 		))
@@ -170,9 +170,9 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Respons
 		Logger.Log(NewLogMessage(
 			ERROR,
 			LogContext{
-				"what": "could not add connection entry to pool (enable debug logging for variable value)!",
+				"what":  "could not add connection entry to pool (enable debug logging for variable value)!",
 				"error": err.Error(),
-				"next": "continuing without cache, disregarding error",
+				"next":  "continuing without cache, disregarding error",
 			},
 			func() string { return fmt.Sprintf("ce: [%v]", ce) },
 		))
@@ -250,10 +250,10 @@ func (s *MutexServer) HandleDNS(w ResponseWriter, r *dns.Msg) {
 			Logger.Log(NewLogMessage(
 				ERROR,
 				LogContext{
-					"what":  "error retrieving record for domain",
+					"what":   "error retrieving record for domain",
 					"domain": domain,
-					"error": err.Error(),
-					"next":  "returning SERVFAIL",
+					"error":  err.Error(),
+					"next":   "returning SERVFAIL",
 				},
 				func() string { return fmt.Sprintf("original request [%v]\nresponse: [%v]\n", r, response) },
 			))
@@ -304,8 +304,8 @@ func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
 
 	Logger.Log(NewLogMessage(
 		INFO,
-		LogContext {
-			"what": "creating server worker pool",
+		LogContext{
+			"what":        "creating server worker pool",
 			"concurrency": string(c),
 		},
 		nil,
@@ -328,11 +328,11 @@ func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
 	}
 
 	ret := &MutexServer{
-		Cache: newcache,
+		Cache:       newcache,
 		HostedCache: hostedcache,
-		dnsClient: client,
-		connPool:  pool,
-		sem:       sem,
+		dnsClient:   client,
+		connPool:    pool,
+		sem:         sem,
 	}
 
 	upstreamNames := config.Upstreams
