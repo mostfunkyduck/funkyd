@@ -11,7 +11,7 @@ import (
 
 const (
 	NOLOG    LogLevel = iota
-	CRITICAL          // the paper discourages using this, i'm leaving it in to meet expectations and to allow unconditional logging
+	CRITICAL
 	ERROR
 	WARNING
 	INFO
