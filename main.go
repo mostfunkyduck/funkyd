@@ -8,11 +8,11 @@ import (
 	"github.com/miekg/dns"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"strconv"
 	"sync"
 	"time"
-	"math/rand"
 )
 
 var (

@@ -153,7 +153,6 @@ func TestConnectionPoolWeighting(t *testing.T) {
 		t.Fatalf("weight on new connection was wrong: [%f] <= 0", weight)
 	}
 
-
 	if err := pool.Add(ce); err != nil {
 		t.Fatalf("got error trying to add ce [%v] to pool [%v]: %s", ce, pool, err.Error())
 	}
@@ -169,7 +168,6 @@ func TestConnectionPoolWeighting(t *testing.T) {
 		t.Fatalf("got connection to different upstream [%s] when a connection to [%s] was expected", ce2Addr, upstreamAddr)
 	}
 }
-
 
 /** BENCHMARKS **/
 
