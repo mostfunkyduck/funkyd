@@ -20,15 +20,15 @@ func (response Response) IsExpired(rr dns.RR) bool {
 		DEBUG,
 		LogContext{
 			"what": fmt.Sprintf("checking if record with ttl [%d] off of creation time [%s] has expired", rr.Header().Ttl, response.CreationTime),
-			"next": fmt.Sprintf("returning whether or not the creation time + the TTL is before %v", time.Now()),
+			"next": fmt.Sprintf("returning whether or not the creation time + the TTL is before %s", time.Now()),
 		},
 		nil,
 	))
-	return response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
+	return response.CreationTime.Add(time.Duration(rr.Header().Ttl)/time.Second).Before(time.Now())
 }
 
 func (r Response) GetExpirationTimeFromRR(rr dns.RR) time.Time {
-	return r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second)
+	return r.CreationTime.Add(time.Duration(rr.Header().Ttl) / time.Second)
 }
 
 // Updates the TTL on the cached record so that the client gets the accurate number
