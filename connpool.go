@@ -87,9 +87,14 @@ func (c *ConnPool) getBestUpstream() (upstream Upstream) {
 			if upstream.GetWeight()*2 < each.GetWeight() {
 				// this upstream is way too heavy, and all the previous ones had no connections
 				// close all it's connections and let it cool down until we need it
-				for conn := range conns {
+				for _, conn := range conns {
 					// do it async to avoid excessive blocking
-					go func(conn ConnEntry) {
+					// FIXME there's a slight race here, the upstream's weight will get reset
+					// FIXME each time we close a connection.  This means that there could be connections made
+					// FIXME during the teardown if it gets a better weight from one of the connections
+					// FIXME this isn't so bad, worst case scenario, we get some faster connections
+					// FIXME on the slow server
+					go func(conn *ConnEntry) {
 						c.CloseConnection(conn)
 					}(conn)
 				}
