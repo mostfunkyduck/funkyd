@@ -32,7 +32,7 @@ func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
 			"what":               "setting weight on connection",
 			"connection_address": ce.GetAddress(),
 			"currentRTT":         fmt.Sprintf("%f", currentRTT),
-			"exchanges":          fmt.Sprintf("f", UpstreamWeight(ce.exchanges)),
+			"exchanges":          fmt.Sprintf("%f", UpstreamWeight(ce.exchanges)),
 			"new_weight":         fmt.Sprintf("%f", weight),
 		},
 		func() string { return fmt.Sprintf("upstream [%v] connection [%v]", ce.upstream, ce) },

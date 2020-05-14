@@ -149,8 +149,8 @@ func TestConnectionPoolWeighting(t *testing.T) {
 	}
 	weight := ce.GetWeight()
 
-	if ce.GetWeight() <= 0 {
-		t.Fatalf("weight on new connection was wrong: [%f] <= 0", weight)
+	if weight != 0.0 {
+		t.Fatalf("weight on new connection was wrong: [%f] != 0", weight)
 	}
 
 	if err := pool.Add(ce); err != nil {
