@@ -29,13 +29,3 @@ Benchmarks can be added by configuring `test/run_tests.sh` to run more tests.  F
 
 ## Should I use this?
 Can't think of a reason not to!
-
-## Current Goals
-1. routing options, allow discarding internal traffic
-1. Needs more DNS features, especially DNSSEC
-1. HTTP API still not implemented
-1. Cache is still local and uses an unbounded amount of memory
-1. There's probably more interesting telemetry we can add
-1. Needs benchmarking against other solutions with comparable functionality
-1. Needs benchmarking to see how it performs in general - mainly resource usage and latency
-1. Docker container
