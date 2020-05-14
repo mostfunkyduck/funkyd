@@ -1,11 +1,15 @@
 package main
 
 import (
+	"log"
+	"syscall"
+	"net"
 	"crypto/tls"
 	"fmt"
 	"github.com/miekg/dns"
 	"strings"
 	"time"
+	"golang.org/x/sys/unix"
 )
 
 func processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
@@ -48,10 +52,28 @@ func logQuery(source string, duration time.Duration, response *dns.Msg) error {
 	return nil
 }
 
+func sockoptSetter(network, address string, c syscall.RawConn) (err error) {
+	config := GetConfiguration()
+	err = c.Control(func (fd uintptr) {
+		if config.UseTfo {
+			if err := unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN_CONNECT, 1); err != nil {
+				log.Printf("could not set TCP fast open to [%s]: %s", address, err.Error())
+			}
+		}
+	})
+	return
+}
+
+func buildDialer() (dialer *net.Dialer) {
+	return &net.Dialer{
+		Control: sockoptSetter,
+	}
+}
 func BuildClient() (*dns.Client, error) {
 	config := GetConfiguration()
 	cl := &dns.Client{
 		SingleInflight: true,
+		Dialer:	buildDialer(),
 		Timeout:        config.Timeout * time.Millisecond,
 		Net:            "tcp-tls",
 		TLSConfig: &tls.Config{

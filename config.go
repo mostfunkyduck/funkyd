@@ -25,6 +25,8 @@ type tlsConfig struct {
 }
 
 type Configuration struct {
+	// Whether or not to use TCP Fast Open
+	UseTfo	bool	`json:"use_tfo"`
 	// Dial timeout in seconds
 	Timeout time.Duration `json:"timeout"`
 
