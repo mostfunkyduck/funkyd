@@ -28,7 +28,7 @@ func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
 			"what": "setting weight on connection",
 			"connection_address": ce.GetAddress(),
 			"currentRTT": fmt.Sprintf("%f", currentRTT),
-			"exchanges": string(ce.exchanges),
+			"exchanges": fmt.Sprintf("f",UpstreamWeight(ce.exchanges)),
 			"new_weight": fmt.Sprintf("%f", weight),
 		},
 		func () string { return fmt.Sprintf("upstream [%v] connection [%v]", ce.upstream, ce) },
@@ -93,7 +93,7 @@ func (c *ConnPool) getBestUpstream() (upstream Upstream) {
 
 // arranges the upstreams based on weight
 func (c *ConnPool) sortUpstreams() {
-	sort.SliceStable(c.upstreams, func(i, j int) bool {
+	sort.Slice(c.upstreams, func(i, j int) bool {
 		return c.upstreams[i].GetWeight() < c.upstreams[j].GetWeight()
 	})
 }
