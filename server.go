@@ -81,7 +81,7 @@ func BuildClient() (*dns.Client, error) {
 	Logger.Log(LogMessage{
 		Level: CRITICAL,
 		Context: LogContext{
-			"what": Logger.Sprintf(DEBUG, "instantiated new dns client in TLS mode"),
+			"what": "instantiated new dns client in TLS mode",
 			"next": "returning for use",
 		},
 	})

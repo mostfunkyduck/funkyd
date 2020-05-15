@@ -21,13 +21,18 @@ func handleError(w http.ResponseWriter, err error, code int) {
 	w.WriteHeader(code)
 }
 
-func shutdown(w http.ResponseWriter, r *http.Request) {
+func shutdownHttpHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 	w.Write([]byte("{\"message\": \"shutting down server\"}"))
 	Shutdown()
 }
 
-func config(w http.ResponseWriter, r *http.Request) {
+func versionHttpHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(200)
+	w.Write([]byte("{\"version\": \"" + GetVersion() + "\"}"))
+}
+
+func configHttpHandler(w http.ResponseWriter, r *http.Request) {
 	conf := GetConfiguration()
 	str, err := json.Marshal(conf)
 	if err != nil {
@@ -63,8 +68,9 @@ func InitApi() {
 	router.Use(addPratchettHeader)
 	router.Use(setContentTypeHeader)
 
-	router.HandleFunc("/v1/config", config)
-	router.HandleFunc("/v1/shutdown", shutdown)
+	router.HandleFunc("/v1/config", configHttpHandler)
+	router.HandleFunc("/v1/shutdown", shutdownHttpHandler)
+	router.HandleFunc("/v1/version", versionHttpHandler)
 	log.Printf("starting HTTP server on ':%d'\n", conf.HttpPort)
 	HttpServer := &http.Server{Handler: router, Addr: fmt.Sprintf(":%d", conf.HttpPort)}
 	// don't block the main thread with this jazz
