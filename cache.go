@@ -115,7 +115,7 @@ type Response struct {
 
 // constructs a cache key from a response
 func (r Response) FormatKey() string {
-	return fmt.Sprintf("%s:%d", r.Key, r.Qtype)
+	return r.Key + string(r.Qtype)
 }
 
 func (response Response) IsExpired(rr dns.RR) bool {
@@ -183,7 +183,7 @@ func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
-			"what": fmt.Sprintf("cache locked, attempting to get [%s] [%d] from cache", key, qtype),
+			"what": Logger.Sprintf(DEBUG, "cache locked, attempting to get [%s] [%d] from cache", key, qtype),
 		},
 		nil,
 	))
@@ -245,7 +245,7 @@ func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 			return Response{}, false
 		}
 	}
-	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": fmt.Sprintf("returning [%s] from cache get", key)}, nil))
+	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": Logger.Sprintf(DEBUG, "returning [%s] from cache get", key)}, nil))
 	return response, true
 }
 

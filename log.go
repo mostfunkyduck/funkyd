@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 )
+type LogLevel int
 
 const (
 	NOLOG    LogLevel = iota
@@ -24,8 +25,8 @@ type logger struct {
 }
 
 type LogContext map[string]string
-type logMessage struct {
-	Level LogLevel
+type LogMessage struct {
+	Level	LogLevel
 
 	Context LogContext
 
@@ -52,8 +53,17 @@ func parseKeys(context map[string]string) string {
 	return string(output)
 }
 
+// performs a sprintf with a given format string and arguments iff the message is printable
+// at the logger's current level, this allows flexible log messages that can be turned on and
+// off easily without performing expensive sprintfs
+func (l logger) Sprintf(level LogLevel, format string, args ...interface{}) string {
+	if level <= l.level {
+		return fmt.Sprintf(format, args...)
+	}
+	return "[message suppressed by log system]"
+}
 // takes a structured message, checks log level, outputs it in a set format
-func (l logger) Log(message logMessage) {
+func (l logger) Log(message LogMessage) {
 	if l.handle == nil {
 		// this logger was never initialized, just bail
 		return
@@ -91,9 +101,9 @@ func levelToString(level LogLevel) string {
 }
 
 // constructor, enforces format
-func NewLogMessage(level LogLevel, context LogContext, debugDetails func() string) logMessage {
-	return logMessage{
-		Level:        level,
+func NewLogMessage(level LogLevel, context LogContext, debugDetails func() string) LogMessage {
+	return LogMessage{
+		Level: level,
 		Context:      context,
 		DebugDetails: debugDetails,
 	}
@@ -153,13 +163,13 @@ func InitLoggers() error {
 		handle: handle,
 	}
 
-	l.Log(NewLogMessage(
-		INFO,
-		LogContext{
+	l.Log(LogMessage{
+		Level: INFO,
+		Context: LogContext{
 			"what": "initialized new query logger",
+			"logger": Logger.Sprintf(DEBUG, "%v", QueryLogger),
 		},
-		func() string { return fmt.Sprintf("%v", QueryLogger) },
-	))
+	})
 
 	return nil
 }

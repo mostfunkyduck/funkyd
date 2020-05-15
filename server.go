@@ -42,11 +42,9 @@ func logQuery(source string, duration time.Duration, response *dns.Msg) error {
 				"answerSource": fmt.Sprintf("[%s]", source),
 				"duration":     fmt.Sprintf("%s", duration),
 			}
-			QueryLogger.Log(NewLogMessage(
-				CRITICAL,
-				queryContext,
-				nil,
-			))
+			QueryLogger.Log(LogMessage {
+					Context: queryContext,
+		  })
 		}
 	}
 	return nil
@@ -80,13 +78,12 @@ func BuildClient() (*dns.Client, error) {
 			InsecureSkipVerify: config.SkipUpstreamVerification,
 		},
 	}
-	Logger.Log(NewLogMessage(
-		INFO,
-		LogContext{
-			"what": "instantiated new dns client in TLS mode",
+	Logger.Log(LogMessage{
+		Level: CRITICAL,
+		Context: LogContext{
+			"what": Logger.Sprintf(DEBUG, "instantiated new dns client in TLS mode"),
 			"next": "returning for use",
 		},
-		nil,
-	))
+	})
 	return cl, nil
 }
