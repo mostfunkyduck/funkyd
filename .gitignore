@@ -2,4 +2,4 @@ src/*
 pkg/*
 funkyd.test
 funkyd
-!test/funkyd
+!testdata/funkyd
