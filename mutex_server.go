@@ -321,6 +321,7 @@ func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("couldn't initialize lookup cache: %s", err)
 	}
+	newcache.StartCleaningCrew()
 
 	hostedcache, err := NewCache()
 	if err != nil {

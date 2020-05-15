@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 	"github.com/miekg/dns"
 )
 
@@ -13,4 +14,14 @@ func UpstreamTestingDialer(upstream Upstream) func(addr string) (conn *dns.Conn,
 		}
 		return &dns.Conn{}, err
 	}
+}
+
+func WaitForCondition(x int, f func () bool) (result bool) {
+	for i := 0; i < x; i++ {
+		if result = f(); result {
+			break
+		}
+		time.Sleep(time.Duration(100) * time.Millisecond)
+	}
+	return
 }

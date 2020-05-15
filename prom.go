@@ -8,6 +8,10 @@ import (
 )
 
 var (
+	EvictionBufferGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "funkyd_eviction_buffer_gauge",
+		Help: "how many records are queued up for deletion",
+	})
 	UpstreamWeightGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "funkyd_upstream_weight_gauge",
 		Help: "the weights of the upstreams in the system, only meaningful when broken down per address",

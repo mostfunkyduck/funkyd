@@ -10,25 +10,132 @@ import (
 	"time"
 )
 
+// Cleans the cache periodically, evicting all bad responses for the trashman
+type Janitor interface {
+	// Starts the janitor
+	Start(r *RecordCache)
+
+	// Stops the janitor
+	Stop ()
+}
+
+type janitor struct {
+	Cancel chan bool
+}
+
+// The trashman is in charge of actually removing responses
+// from a given cache.  As removal requires a lock, the trashman
+// interface provides functions for queueing and flushing responses
+// to avoid thrashing
+type TrashMan interface {
+	// Initializes the trashman for a given cache
+	Start(r *RecordCache)
+
+	// Halts the trashman
+	Stop()
+
+	// queues a response for discarding
+	Evict(r Response)
+
+	// returns how many responses are queued for discarding
+	ResponsesQueued() int
+
+	// queues a response to be discarded
+	AddResponse(r Response)
+
+	// deletes all queued records
+	FlushResponses()
+
+	// pauses the trashman (used to avoid timing crap in unit tests, while still being able to test end to end)
+	Pause()
+
+	// Unpauses
+	Unpause()
+
+	// returns paused status
+	Paused() bool
+}
+
+// Waits for evicted responses and deletes them out of band
+type trashMan struct {
+	// cancel channel for teardown
+	Cancel	chan bool
+
+	// channel for taking evicted responses
+	Channel chan Response
+
+	// cache that the trashman is collecting trash for
+	recordCache *RecordCache
+
+	// responses buffered to be discarded
+	responses map[string]Response
+
+	// how many responses to buffer before flushing
+	evictionBatchSize int
+
+	// channel for telling the trashman to pause or unpause
+	pauseChannel	chan bool
+
+	// whether or not this trashman is paused
+	paused	bool
+}
+
+// Core cache struct, manages the actual cache and the cleaning crew
+type RecordCache struct {
+	// See janitor struct
+	Janitor		 Janitor
+
+	// See TrashMan struct
+	TrashMan	 TrashMan
+
+	// the actual cache
+	cache      map[string]Response
+
+	// the cache lock
+	lock       Lock
+}
+
+// DNS response cache wrapper
+type Response struct {
+	// The domain this response is for
+	Key          string
+
+	// The actual reply message
+	Entry        dns.Msg
+
+	// TTL
+	Ttl          time.Duration
+
+	// Query type
+	Qtype        uint16
+
+	// When this response was created
+	CreationTime time.Time
+}
+
 // constructs a cache key from a response
-func formatKey(key string, qtype uint16) string {
-	return fmt.Sprintf("%s:%d", key, qtype)
+func (r Response) FormatKey() string {
+	return fmt.Sprintf("%s:%d", r.Key, r.Qtype)
 }
 
 func (response Response) IsExpired(rr dns.RR) bool {
+	expired := response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
-			"what": fmt.Sprintf("checking if record with ttl [%d] off of creation time [%s] has expired", rr.Header().Ttl, response.CreationTime),
-			"next": fmt.Sprintf("returning whether or not the creation time + the TTL is before %s", time.Now()),
+			"what": "checking if record has expired",
+			"ttl": fmt.Sprintf("%d", rr.Header().Ttl),
+			"record_key": response.FormatKey(),
+			"creationtime": fmt.Sprintf("%s", response.CreationTime),
+			"expired": fmt.Sprintf("%t", expired),
 		},
 		nil,
 	))
-	return response.CreationTime.Add(time.Duration(rr.Header().Ttl)/time.Second).Before(time.Now())
+	return expired
 }
 
 func (r Response) GetExpirationTimeFromRR(rr dns.RR) time.Time {
-	return r.CreationTime.Add(time.Duration(rr.Header().Ttl) / time.Second)
+	return r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second)
 }
 
 // Updates the TTL on the cached record so that the client gets the accurate number
@@ -50,6 +157,7 @@ func (r Response) updateTtl(rr dns.RR) {
 		DEBUG,
 		LogContext{
 			"what": "updating cached TTL",
+			"ttl": string(castTtl),
 		},
 		func() string { return fmt.Sprintf("rr [%v] ttl [%f] casted ttl [%d]", rr, ttl, castTtl) },
 	))
@@ -64,8 +172,7 @@ func (r *RecordCache) Size() int {
 func (r *RecordCache) Add(response Response) {
 	r.Lock()
 	defer r.Unlock()
-
-	r.cache[formatKey(response.Key, response.Qtype)] = response
+	r.cache[response.FormatKey()] = response
 	CacheSizeGauge.Set(float64(len(r.cache)))
 }
 
@@ -80,7 +187,12 @@ func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 		},
 		nil,
 	))
-	response, ok := r.cache[formatKey(key, qtype)]
+
+	response := Response{
+		Key: key,
+		Qtype: qtype,
+	}
+	response, ok := r.cache[response.FormatKey()]
 	if !ok {
 		Logger.Log(NewLogMessage(INFO, LogContext{"what": "cache miss"}, nil))
 		return Response{}, false
@@ -111,7 +223,7 @@ func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 			},
 			func() string { return fmt.Sprintf("rec [%v] resp [%v]", rec, response) },
 		))
-		// just in case the clean job hasn't fired, filter out nastiness NB: the clean job is disabled
+	  // make sure the TTL is up to date
 		response.updateTtl(rec)
 		if response.IsExpired(rec) {
 			// There is at least one record in this response that's expired
@@ -129,7 +241,7 @@ func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 				},
 				nil,
 			))
-			r.evict(response)
+			r.Evict(response)
 			return Response{}, false
 		}
 	}
@@ -137,11 +249,14 @@ func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 	return response, true
 }
 
-// Removes an entire response from the cache
 func (r *RecordCache) Remove(response Response) {
 	r.Lock()
 	defer r.Unlock()
-	key := formatKey(response.Key, response.Qtype)
+	r.remove(response)
+}
+// Removes an entire response from the cache, helper function, not reentrant
+func (r *RecordCache) remove(response Response) {
+	key := response.FormatKey()
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
@@ -154,6 +269,13 @@ func (r *RecordCache) Remove(response Response) {
 	CacheSizeGauge.Set(float64(len(r.cache)))
 }
 
+func (r *RecordCache) RemoveSlice (responses []Response) {
+	r.Lock()
+	defer r.Unlock()
+	for _, resp := range responses {
+		r.remove(resp)
+	}
+}
 func (r *RecordCache) RLock() {
 	r.lock.RLock()
 }
@@ -194,27 +316,25 @@ func (r *RecordCache) Clean() int {
 		Logger.Log(NewLogMessage(
 			DEBUG,
 			LogContext{
-				"what": fmt.Sprintf("examining entry with key [%s], response [%v]", key, response),
+				"what": "examining entry",
+				"key":  key,
 				"why":  "evaluating for cleaning",
 				"next": "updating TTLs in all response records and expiring as needed",
 			},
-			nil,
+			func () string { return fmt.Sprintf("resp: [%v]", response)},
 		))
 		for _, record := range response.Entry.Answer {
-			// record is valid, update it
-			response.updateTtl(record)
 			if response.IsExpired(record) {
 				// CNAME analysis will have to happen here
 				Logger.Log(NewLogMessage(
-					INFO,
-					LogContext{
-						"what": fmt.Sprintf("record [%v] has expired, removing entire cached response [%v]", record, response),
-						"why":  "response has expired records",
-						"next": "continuing cleaning job on next response",
+					DEBUG,
+					LogContext {
+						"what": "evicting response",
+						"key": response.FormatKey(),
 					},
-					func() string { return fmt.Sprintf("%v", r) },
+					nil,
 				))
-				r.Remove(response)
+				r.Evict(response)
 				records_deleted++
 				break
 			}
@@ -223,17 +343,164 @@ func (r *RecordCache) Clean() int {
 	return records_deleted
 }
 
-// spin off a goroutine to contend for the lock and purge the response out of band
-func (r *RecordCache) evict(resp Response) {
-	// TODO make this into a channel-reading gr instead of allowing for unbounded spawning of eviction grs
-	// TODO perhaps combine it with Clean()
-	go func(response Response) {
-		r.Remove(response)
-	}(resp)
+// tell the trashman to dispose of this response
+func (r *RecordCache) Evict(resp Response) {
+	// need to async or there will be deadlock when a caller is holding
+	// r's lock and this function has to essentially trigger a 'Remove' 
+	// that needs that lock to progress
+	go func() {
+		r.TrashMan.Evict(resp)
+	}()
 }
+
 func NewCache() (*RecordCache, error) {
 	ret := &RecordCache{
 		cache: make(map[string]Response),
 	}
 	return ret, nil
 }
+
+func (r *RecordCache) StartCleaningCrew() {
+	if r.Janitor == nil {
+		r.Janitor = &janitor{}
+	}
+
+	if r.TrashMan == nil {
+		r.TrashMan = &trashMan{
+			responses: make(map[string]Response),
+			evictionBatchSize: GetConfiguration().EvictionBatchSize,
+		}
+	}
+
+	r.Janitor.Start(r)
+	r.TrashMan.Start(r)
+}
+
+// Mainly allowing this so that tests can clean up their grs
+func (r *RecordCache) StopCleaningCrew() {
+	r.TrashMan.Stop()
+	r.Janitor.Stop()
+}
+
+func (t *trashMan) Stop() {
+	t.Cancel <-true
+}
+func (t *trashMan) Evict(r Response) {
+	t.Channel <- r
+}
+func (t *trashMan) AddResponse(r Response) {
+	if _, ok := t.responses[r.FormatKey()]; !ok {
+		t.responses[r.FormatKey()] = r
+	}
+}
+
+func (t *trashMan) FlushResponses() {
+	Logger.Log(NewLogMessage(
+		INFO,
+		LogContext {
+			"what": "trashman flushing evicted records",
+			"recordcount": string(t.ResponsesQueued()),
+		},
+		nil,
+	))
+
+	flushBuffer := []Response{}
+	for k, v := range t.responses {
+		flushBuffer = append(flushBuffer, v)
+		delete(t.responses, k)
+	}
+	t.recordCache.RemoveSlice(flushBuffer)
+}
+
+func (t *trashMan) Pause() {
+	t.pauseChannel <-true
+}
+
+func (t *trashMan) Unpause() {
+	t.pauseChannel <-false
+}
+
+func (t *trashMan) ResponsesQueued() int {
+	return len(t.responses)
+}
+
+func (t *trashMan) Paused() bool {
+	return t.paused
+}
+func (t *trashMan) Start(r *RecordCache) {
+	t.Channel = make(chan Response)
+	t.Cancel = make(chan bool)
+	t.pauseChannel = make(chan bool)
+	t.recordCache = r
+	go func() {
+		Logger.Log(NewLogMessage(
+			INFO,
+			LogContext {
+				"what": "starting trashman",
+				"batchsize": string(t.evictionBatchSize),
+			},
+			nil,
+		))
+tmloop:
+		for {
+			select {
+			case response := <-t.Channel:
+				Logger.Log(NewLogMessage(
+					DEBUG,
+					LogContext {
+						"what": "trashman discarding response",
+						"response": response.FormatKey(),
+						"queued_responses": fmt.Sprintf("%d", t.ResponsesQueued()),
+					},
+					func () string { return fmt.Sprintf("response: [%v]", response)},
+				))
+				t.AddResponse(response)
+				if t.ResponsesQueued() >= t.evictionBatchSize && ! t.paused {
+					t.FlushResponses()
+				}
+				EvictionBufferGauge.Set(float64(t.ResponsesQueued()))
+			case p := <-t.pauseChannel:
+				t.paused = p
+				// if we just unpaused, flush!
+				if ! p && t.ResponsesQueued() >= t.evictionBatchSize {
+					t.FlushResponses()
+				}
+			case <-t.Cancel:
+				break tmloop
+			}
+		}
+	}()
+}
+
+func (j janitor) Stop() {
+	j.Cancel <-true
+}
+
+func (j janitor) Start(r *RecordCache) {
+	config := GetConfiguration()
+	j.Cancel = make(chan bool)
+	go func() {
+		interval := config.CleanInterval
+		if interval == 0 {
+			interval = 1000
+		}
+		t := time.NewTicker(time.Duration(interval) * time.Millisecond)
+		Logger.Log(NewLogMessage(
+			INFO,
+			LogContext {
+				"what": "starting janitor",
+				"interval": fmt.Sprintf("%d", interval),
+			},
+			nil,
+		))
+		for {
+			select {
+			case _ = <-t.C:
+				r.Clean()
+			case _ = <-j.Cancel:
+				return
+			}
+		}
+	}()
+}
+

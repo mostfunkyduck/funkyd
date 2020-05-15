@@ -25,8 +25,21 @@ type tlsConfig struct {
 }
 
 type Configuration struct {
-	// Whether or not to use TCP Fast Open
+	// Whether or not to use TCP Fast Open (hint: this is an experimental protocol 
+  // that slows the hell out of things when the upstream doesn't support it, 
+	// the first packet is sent with a payload and if the server doesn't support that,
+	// it just drops the packet 9_9
 	UseTfo	bool	`json:"use_tfo"`
+
+	// How often to clean the record cache, in ms
+	CleanInterval	time.Duration	`json:"clean_interval"`
+
+	// How many evicted responses from the record cache should be buffered before deletion
+	// by default, responses will be evicted immediately, which may cause a lot of contention
+	// for the cache lock
+	EvictionBatchSize	int	`json:"eviction_batch_size"`
+
+
 	// Dial timeout in seconds
 	Timeout time.Duration `json:"timeout"`
 

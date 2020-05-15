@@ -120,23 +120,3 @@ type Lock struct {
 	locklevel int
 }
 
-type RecordCache struct {
-	cache      map[string]Response
-	cleanTimer *time.Timer
-	lock       Lock
-}
-
-// DNS response cache wrapper
-type Response struct {
-	Key          string
-	Entry        dns.Msg
-	Ttl          time.Duration
-	Qtype        uint16
-	CreationTime time.Time
-}
-
-// Cache entry + metadata for record caches
-type Record struct {
-	Key   string
-	Entry interface{}
-}
