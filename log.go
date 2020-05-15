@@ -60,7 +60,8 @@ func (l logger) Log(message logMessage) {
 	}
 	if message.Level <= l.level {
 		message.Context["level"] = levelToString(message.Level)
-		message.Context["when"] = fmt.Sprintf("%s", time.Now())
+		now := time.Now()
+		message.Context["when"] = fmt.Sprintf("%d-%02d-%02d:%02d:%02d:%02d", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second())
 		output := parseKeys(message.Context)
 		if l.level >= DEBUG && message.DebugDetails != nil {
 			message.Context["debug"] = message.DebugDetails()
