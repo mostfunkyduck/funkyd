@@ -233,9 +233,9 @@ func (s *MutexServer) HandleDNS(w ResponseWriter, r *dns.Msg) {
 		Logger.Log(NewLogMessage(
 			CRITICAL,
 			LogContext{
-				"what": "failed to acquire semaphore allowing queries to progress",
-				"error":  err.Error(),
-				"next": "panicking",
+				"what":  "failed to acquire semaphore allowing queries to progress",
+				"error": err.Error(),
+				"next":  "panicking",
 			},
 			nil,
 		))

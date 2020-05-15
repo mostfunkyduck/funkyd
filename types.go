@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-
 // making this to support dependency injection into the server
 type Client interface {
 	// Make a new connection
@@ -105,4 +104,3 @@ type Lock struct {
 	sync.RWMutex
 	locklevel int
 }
-

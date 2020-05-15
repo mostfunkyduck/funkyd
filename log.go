@@ -8,10 +8,11 @@ import (
 	"os"
 	"time"
 )
+
 type LogLevel int
 
 const (
-	NOLOG    LogLevel = iota
+	NOLOG LogLevel = iota
 	CRITICAL
 	ERROR
 	WARNING
@@ -26,7 +27,7 @@ type logger struct {
 
 type LogContext map[string]string
 type LogMessage struct {
-	Level	LogLevel
+	Level LogLevel
 
 	Context LogContext
 
@@ -62,6 +63,7 @@ func (l logger) Sprintf(level LogLevel, format string, args ...interface{}) stri
 	}
 	return "[message suppressed by log system]"
 }
+
 // takes a structured message, checks log level, outputs it in a set format
 func (l logger) Log(message LogMessage) {
 	if l.handle == nil {
@@ -103,7 +105,7 @@ func levelToString(level LogLevel) string {
 // constructor, enforces format
 func NewLogMessage(level LogLevel, context LogContext, debugDetails func() string) LogMessage {
 	return LogMessage{
-		Level: level,
+		Level:        level,
 		Context:      context,
 		DebugDetails: debugDetails,
 	}
@@ -166,7 +168,7 @@ func InitLoggers() error {
 	l.Log(LogMessage{
 		Level: INFO,
 		Context: LogContext{
-			"what": "initialized new query logger",
+			"what":   "initialized new query logger",
 			"logger": Logger.Sprintf(DEBUG, "%v", QueryLogger),
 		},
 	})

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"github.com/google/go-cmp/cmp"
 	"github.com/miekg/dns"
+	"github.com/stretchr/testify/mock"
 	"testing"
 	"time"
-	"github.com/stretchr/testify/mock"
 )
 
 type StubJanitor struct {
@@ -25,7 +25,7 @@ func setupCache() (rc *RecordCache, err error) {
 	if err != nil {
 		return nil, err
 	}
-	// the janitor will get in the way of unit testing as it automatically 
+	// the janitor will get in the way of unit testing as it automatically
 	// purges recoords, better to leave it stubbed
 	rc.Janitor = &StubJanitor{}
 
@@ -79,7 +79,7 @@ func TestClean(t *testing.T) {
 		t.Fatalf("couldn't set up cache: %s", err.Error())
 	}
 	cache.TrashMan = &trashMan{
-		responses: make(map[string]Response),
+		responses:         make(map[string]Response),
 		evictionBatchSize: 2,
 	}
 	// we want the trashman to run here, the janitor is stubbed by the setup function above
@@ -87,7 +87,7 @@ func TestClean(t *testing.T) {
 	defer cache.StopCleaningCrew()
 
 	i := 1
-	f := func (domain string) Response {
+	f := func(domain string) Response {
 		r := setupResponse(i)
 		i++
 		r.Ttl = 10 * time.Second
@@ -110,13 +110,13 @@ func TestClean(t *testing.T) {
 	cache.Add(response)
 
 	cache.TrashMan.Pause()
-	if ! WaitForCondition(10, func () bool {
+	if !WaitForCondition(10, func() bool {
 		return cache.TrashMan.Paused()
 	}) {
 		t.Fatalf("trashman never paused: [%v]", cache.TrashMan)
 	}
 	cache.Clean()
-	WaitForCondition(10, func () bool {
+	WaitForCondition(10, func() bool {
 		return cache.TrashMan.ResponsesQueued() > 0
 	})
 
@@ -131,7 +131,7 @@ func TestClean(t *testing.T) {
 	response2 := f("example2.com")
 	cache.Add(response2)
 	cache.Clean()
-	if ! WaitForCondition(10, func () bool {
+	if !WaitForCondition(10, func() bool {
 		return cache.TrashMan.ResponsesQueued() == 2
 	}) {
 		t.Fatalf("trashman didn't queue second response! resp [%v] cache [%v] tm [%v] rq[%d]", response2, cache, cache.TrashMan, cache.TrashMan.ResponsesQueued())
@@ -139,7 +139,7 @@ func TestClean(t *testing.T) {
 
 	cache.TrashMan.Unpause()
 	// I hate doing this, but it's the only way to do an end to end test
-	if ! WaitForCondition(10, func () bool {
+	if !WaitForCondition(10, func() bool {
 		return cache.Size() == 0
 	}) {
 		t.Fatalf("trash man did not actually delete the records! %d != 0 (after test closure ran), cache: [%v] trashman [%v]", cache.Size(), cache, cache.TrashMan)
