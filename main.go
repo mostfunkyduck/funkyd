@@ -126,7 +126,7 @@ func main() {
 		os.Exit(1)
 	}
 	rand.Seed(time.Now().UnixNano())
-
+	BuildInfoGauge.WithLabelValues(GetVersion()).Set(1)
 	log.Printf("reading configuration from [%s]", *confFile)
 	// read in configuration
 	err := InitConfiguration(*confFile)

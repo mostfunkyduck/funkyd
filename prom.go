@@ -8,6 +8,12 @@ import (
 )
 
 var (
+	BuildInfoGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "funkyd_build_info",
+		Help: "information about the current build",
+	},
+		[]string{"version"},
+	)
 	EvictionBufferGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "funkyd_eviction_buffer_gauge",
 		Help: "how many records are queued up for deletion",
