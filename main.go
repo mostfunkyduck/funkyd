@@ -17,17 +17,18 @@ import (
 
 var (
 	confFile   = flag.String("conf", "", "location of the funkyd configuration file")
-	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+	versionFlag = flag.Bool("version", false, "output version")
 )
 
 func validateConfFile() error {
 	file := *confFile
-	if _, err := os.Stat(file); err != nil {
-		return err
-	}
 
 	if file == "" {
 		return fmt.Errorf("no configuration file specified")
+	}
+
+	if _, err := os.Stat(file); err != nil {
+		return err
 	}
 
 	return nil
@@ -114,7 +115,16 @@ func Shutdown() {
 
 func main() {
 	flag.Parse()
-	validateFlags()
+
+	if *versionFlag {
+		fmt.Printf("current version: %s\n", GetVersion())
+		os.Exit(0)
+	}
+
+	if err := validateFlags(); err != nil {
+		fmt.Printf("error: %s\n", err.Error())
+		os.Exit(1)
+	}
 	rand.Seed(time.Now().UnixNano())
 
 	log.Printf("reading configuration from [%s]", *confFile)
