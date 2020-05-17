@@ -5,8 +5,8 @@ import (
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"sort"
-	"time"
 	"sync"
+	"time"
 )
 
 type ConnPool struct {

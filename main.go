@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	confFile   = flag.String("conf", "", "location of the funkyd configuration file")
+	confFile    = flag.String("conf", "", "location of the funkyd configuration file")
 	versionFlag = flag.Bool("version", false, "output version")
 )
 

@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"time"
-	"net"
 	"github.com/miekg/dns"
+	"net"
 	"testing"
+	"time"
 )
 
 func buildPool() *ConnPool {
@@ -178,7 +178,7 @@ func TestConnectionPoolAddSlowConnection(t *testing.T) {
 	pool.AddUpstream(upstream)
 	pool.AddUpstream(upstream1)
 
-	ce, err := pool.NewConnection(*upstream1, func (addr string) (*dns.Conn, error) {
+	ce, err := pool.NewConnection(*upstream1, func(addr string) (*dns.Conn, error) {
 		server, client := net.Pipe()
 		server.Close()
 		return &dns.Conn{Conn: client}, nil
@@ -193,8 +193,8 @@ func TestConnectionPoolAddSlowConnection(t *testing.T) {
 		t.Fatalf("got error trying to add ce [%v] to pool [%v]: %s", ce, pool, err.Error())
 	}
 
-	ce2, u, _:= pool.Get()
-	if (u.Name != upstream.Name) {
+	ce2, u, _ := pool.Get()
+	if u.Name != upstream.Name {
 		t.Fatalf("expected slow connection to have been closed! [%v] [%v]", u, ce2)
 	}
 }

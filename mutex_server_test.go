@@ -1,10 +1,10 @@
 package main
 
 import (
-	"github.com/miekg/dns"
-	"net"
 	"fmt"
+	"github.com/miekg/dns"
 	"github.com/stretchr/testify/mock"
+	"net"
 	"testing"
 	"time"
 )
@@ -34,7 +34,7 @@ type MockConnPool struct {
 	mock.Mock
 }
 
-func (m *MockConnPool) NewConnection() 
+func (m *MockConnPool) NewConnection()
 func buildTestResources() (Server, *StubDnsClient, error) {
 	return BuildStubServer()
 }
@@ -65,7 +65,7 @@ func buildTestMocks(mockDial bool) (Server, *MockDnsClient, error) {
 	return server, testClient, nil
 }
 
-func TestRecursiveQueryErrors (t *testing.T) {
+func TestRecursiveQueryErrors(t *testing.T) {
 	server, cl, err := buildTestMocks(true)
 	if err != nil {
 		t.Fatalf("could not build test resources: [%v]: %s", server, err)
