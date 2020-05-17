@@ -7,6 +7,18 @@ import (
 	"time"
 )
 
+type StubJanitor struct {
+	mock.Mock
+}
+
+// No need for the stub to do anything in this case
+func (s *StubJanitor) Start(r *RecordCache) {
+}
+
+func (s *StubJanitor) Stop() {
+}
+
+
 type StubConn struct {
 	mock.Mock
 }

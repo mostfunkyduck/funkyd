@@ -1,6 +1,6 @@
 package main
-
 // structured logger
+
 import (
 	"encoding/json"
 	"fmt"

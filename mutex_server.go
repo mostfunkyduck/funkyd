@@ -1,4 +1,6 @@
 package main
+// A server/handler implementation that uses traditional mutexes for concurrency
+// eventually, this will have another 'pipeline' implementation to compare performance against
 
 // The mutex server uses traditional concurrency controls
 import (

@@ -1,5 +1,6 @@
 package main
-
+// Configuration module, parses configuration into a struct which is
+// exposed for general use
 import (
 	"encoding/json"
 	"fmt"

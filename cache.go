@@ -1,9 +1,9 @@
 package main
 
 // TODO: this is now a cache that maps domains to an unsorted collection of records
-// this is probably fine because of how small the records for an average domain are
-// it could be vastly improved, however, i've tried to make the apis flexible so that i can
-// shoehorn in a real system once i proof-of-concept this one
+// TODO this is probably fine because of how small the records for an average domain are
+// TODO it could be vastly improved, however, i've tried to make the apis flexible so that i can
+// TODO shoehorn in a real system once i proof-of-concept this one
 import (
 	"fmt"
 	"github.com/miekg/dns"

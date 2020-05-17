@@ -4,21 +4,9 @@ import (
 	"fmt"
 	"github.com/google/go-cmp/cmp"
 	"github.com/miekg/dns"
-	"github.com/stretchr/testify/mock"
 	"testing"
 	"time"
 )
-
-type StubJanitor struct {
-	mock.Mock
-}
-
-// No need for the stub to do anything in this case
-func (s *StubJanitor) Start(r *RecordCache) {
-}
-
-func (s *StubJanitor) Stop() {
-}
 
 func setupCache() (rc *RecordCache, err error) {
 	rc, err = NewCache()

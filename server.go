@@ -1,5 +1,5 @@
 package main
-
+// Generic functions and types for servers
 import (
 	"crypto/tls"
 	"fmt"

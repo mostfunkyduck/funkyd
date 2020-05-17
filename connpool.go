@@ -1,5 +1,6 @@
 package main
-
+// Pools connections to upstream servers, does high level lifecycle management and
+// prioritizes which upstreams get connections and which don't
 import (
 	"fmt"
 	"github.com/miekg/dns"

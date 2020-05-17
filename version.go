@@ -1,5 +1,7 @@
-// https://stackoverflow.com/questions/11354518/application-auto-build-versioning
 package main
+// manages the version metadata
+// https://stackoverflow.com/questions/11354518/application-auto-build-versioning
+
 import "fmt"
 
 var versionHostname, versionBranch, versionTag, versionDate, versionRevision string

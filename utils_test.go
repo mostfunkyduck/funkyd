@@ -1,5 +1,5 @@
 package main
-
+// General utilites
 import (
 	"fmt"
 	"github.com/miekg/dns"

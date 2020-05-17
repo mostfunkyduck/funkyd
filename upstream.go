@@ -1,4 +1,5 @@
 package main
+// Manages information about upstream servers
 
 import (
 	"fmt"
