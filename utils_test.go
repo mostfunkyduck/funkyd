@@ -1,4 +1,5 @@
 package main
+
 // General utilites
 import (
 	"fmt"

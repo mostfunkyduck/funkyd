@@ -75,7 +75,7 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 	var upstreams = make([]*Upstream, 0)
 	for i := 0; i < max; i++ {
 		name := f(i)
-		newUpstream := &Upstream {
+		newUpstream := &Upstream{
 			Name: UpstreamName(name),
 		}
 		pool.AddUpstream(newUpstream)

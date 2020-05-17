@@ -1,4 +1,5 @@
 package main
+
 // This module handles the local zone file management
 import (
 	"fmt"

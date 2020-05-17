@@ -18,7 +18,6 @@ func (s *StubJanitor) Start(r *RecordCache) {
 func (s *StubJanitor) Stop() {
 }
 
-
 type StubConn struct {
 	mock.Mock
 }

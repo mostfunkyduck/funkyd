@@ -168,12 +168,12 @@ func main() {
 		}
 	}
 
-	Logger.Log(LogMessage {
+	Logger.Log(LogMessage{
 		Level: CRITICAL,
-		Context: LogContext {
-			"what": "starting up TCP and UDP servers",
+		Context: LogContext{
+			"what":    "starting up TCP and UDP servers",
 			"version": GetVersion().String(),
-			"port": fmt.Sprintf("%d", dnsPort),
+			"port":    fmt.Sprintf("%d", dnsPort),
 		},
 	})
 

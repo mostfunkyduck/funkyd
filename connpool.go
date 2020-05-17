@@ -1,4 +1,5 @@
 package main
+
 // Pools connections to upstream servers, does high level lifecycle management and
 // prioritizes which upstreams get connections and which don't
 import (
@@ -32,7 +33,7 @@ type ConnPool interface {
 	Unlock()
 
 	// Adds a new connection to the pool targetting a given upstream and using a given dial function to make the connection.
-	// The abstraction of dialFunc is for dependency injection 
+	// The abstraction of dialFunc is for dependency injection
 	NewConnection(upstream Upstream, dialFunc func(address string) (*dns.Conn, error)) (ce *ConnEntry, err error)
 
 	// Returns the number of open connections in the pool

@@ -1,4 +1,5 @@
 package main
+
 // Central place for all prometheus metrics
 
 import (

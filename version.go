@@ -1,10 +1,12 @@
 package main
+
 // manages the version metadata
 // https://stackoverflow.com/questions/11354518/application-auto-build-versioning
 
 import "fmt"
 
 var versionHostname, versionBranch, versionTag, versionDate, versionRevision string
+
 type Version struct {
 	Hostname, Branch, Tag, Date, Revision string
 }
@@ -16,9 +18,9 @@ func (v Version) String() string {
 func GetVersion() Version {
 	return Version{
 		Hostname: versionHostname,
-		Branch: versionBranch,
-		Tag:	versionTag,
-		Date:	versionDate,
-		Revision:	versionRevision,
+		Branch:   versionBranch,
+		Tag:      versionTag,
+		Date:     versionDate,
+		Revision: versionRevision,
 	}
 }
