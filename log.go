@@ -27,12 +27,16 @@ type logger struct {
 }
 
 type LogContext map[string]string
+
 type LogMessage struct {
+	// the level at which this message should be logged
 	Level LogLevel
 
+	// structured log data - all keys/values will be output
 	Context LogContext
 
-	// Verbose details
+	// This function can run arbitrary code in a callback IFF the log is turned up to 'DEBUG'
+	// use this for heavyweight debugging code that you only want to run under special circumstances
 	DebugDetails func() string
 }
 
@@ -42,18 +46,6 @@ var Logger logger
 
 // this logger is for query logging
 var QueryLogger logger
-
-func (l logger) SetLevel(level LogLevel) {
-	l.level = level
-}
-
-func parseKeys(context map[string]string) string {
-	output, err := json.Marshal(context)
-	if err != nil {
-		return fmt.Sprintf("could not marshal [%v] to JSON", context)
-	}
-	return string(output)
-}
 
 // performs a sprintf with a given format string and arguments iff the message is printable
 // at the logger's current level, this allows flexible log messages that can be turned on and
@@ -85,6 +77,19 @@ func (l logger) Log(message LogMessage) {
 
 func (l logger) output(output string) {
 	fmt.Fprintf(l.handle, "%s\n", output)
+}
+
+
+func (l logger) SetLevel(level LogLevel) {
+	l.level = level
+}
+
+func parseKeys(context map[string]string) string {
+	output, err := json.Marshal(context)
+	if err != nil {
+		return fmt.Sprintf("could not marshal [%v] to JSON", context)
+	}
+	return string(output)
 }
 
 func levelToString(level LogLevel) string {
