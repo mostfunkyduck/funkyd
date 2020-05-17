@@ -9,7 +9,36 @@ import (
 	"time"
 )
 
-type ConnPool struct {
+type ConnPool interface {
+	// Retrieves a new connection from the pool
+	// returns an upstream and a nil connentry if a new
+	// connection must be made
+	Get() (ce *ConnEntry, upstream Upstream, err error)
+
+	// Adds a new connection to the pool
+	Add(ce *ConnEntry) (err error)
+
+	// Add a new upstream to the pool
+	AddUpstream(r *Upstream)
+
+	// Close a given connection
+	CloseConnection(ce *ConnEntry)
+
+	// Locks the pool
+	Lock()
+
+	// Unlocks the pool
+	Unlock()
+
+	// Adds a new connection to the pool targetting a given upstream and using a given dial function to make the connection.
+	// The abstraction of dialFunc is for dependency injection 
+	NewConnection(upstream Upstream, dialFunc func(address string) (*dns.Conn, error)) (ce *ConnEntry, err error)
+
+	// Returns the number of open connections in the pool
+	Size() int
+}
+
+type connPool struct {
 	// List of actual upstream structs
 	upstreams []*Upstream
 
@@ -77,23 +106,23 @@ func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
 	return
 }
 
-func NewConnPool() *ConnPool {
-	return &ConnPool{
+func NewConnPool() *connPool {
+	return &connPool{
 		cache: make(map[string][]*ConnEntry),
 	}
 }
 
-func (c *ConnPool) Lock() {
+func (c *connPool) Lock() {
 	c.lock.Lock()
 }
 
-func (c *ConnPool) Unlock() {
+func (c *connPool) Unlock() {
 	c.lock.Unlock()
 }
 
 // Retrieves a given upstream based on its address.  This is used to avoid excessive
 // locking while passing around upstreams
-func (c *ConnPool) GetUpstreamByAddress(address string) (upstream *Upstream, err error) {
+func (c *connPool) getUpstreamByAddress(address string) (upstream *Upstream, err error) {
 	// technically not the fastest way to do this, but the list of upstreams shouldn't be big enough for it to matter
 	for _, upstream := range c.upstreams {
 		if upstream.GetAddress() == address {
@@ -105,7 +134,7 @@ func (c *ConnPool) GetUpstreamByAddress(address string) (upstream *Upstream, err
 
 // WARNING: this function is not reentrant, it is meant to be called internally
 // when the connection pool is already locked and needs to update its upstream weights
-func (c *ConnPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
+func (c *connPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 	// the upstream weight will be the result of the most recent connection:
 	// we want to prefer the upstream with the fastest connections and
 	// ditch them when they start to slow down
@@ -116,7 +145,7 @@ func (c *ConnPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 //  Will select the lowest weighted cached connection
 // falling back to the lowest weighted upstream if none exist
 // will also clean up and close slow connections
-func (c *ConnPool) getBestUpstream() (upstream Upstream) {
+func (c *connPool) getBestUpstream() (upstream Upstream) {
 	// get the first upstream with connections, default to the 0th connection on the list
 	// iterate through in order; this list is sorted based on weight
 	upstream = *c.upstreams[0] // start off with the default
@@ -132,17 +161,17 @@ func (c *ConnPool) getBestUpstream() (upstream Upstream) {
 }
 
 // arranges the upstreams based on weight
-func (c *ConnPool) sortUpstreams() {
+func (c *connPool) sortUpstreams() {
 	sort.Slice(c.upstreams, func(i, j int) bool {
 		return c.upstreams[i].GetWeight() < c.upstreams[j].GetWeight()
 	})
 }
 
 // updates a upstream's weight based on a conn entry being added or closed
-func (c *ConnPool) updateUpstream(ce *ConnEntry) (err error) {
+func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 	address := ce.GetAddress()
 	// get the actual pointer for this ce's upstream
-	upstream, err := c.GetUpstreamByAddress(address)
+	upstream, err := c.getUpstreamByAddress(address)
 	if err != nil {
 		return fmt.Errorf("could not add conn entry with address [%s]: %s", address, err.Error())
 	}
@@ -154,7 +183,7 @@ func (c *ConnPool) updateUpstream(ce *ConnEntry) (err error) {
 }
 
 // iterate through the cache and close connections to slow upstreams
-func (c *ConnPool) closeSlowUpstreams() {
+func (c *connPool) closeSlowUpstreams() {
 	upstream := *c.upstreams[0]
 	for _, each := range c.upstreams {
 		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
@@ -171,7 +200,7 @@ func (c *ConnPool) closeSlowUpstreams() {
 }
 
 // adds a connection to the cache
-func (c *ConnPool) Add(ce *ConnEntry) (err error) {
+func (c *connPool) Add(ce *ConnEntry) (err error) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -201,7 +230,7 @@ func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 }
 
 // Makes a new connection to a given upstream, wraps the whole thing in conn entry
-func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string) (*dns.Conn, error)) (ce *ConnEntry, err error) {
+func (c *connPool) NewConnection(upstream Upstream, dialFunc func(address string) (*dns.Conn, error)) (ce *ConnEntry, err error) {
 	address := upstream.GetAddress()
 	Logger.Log(NewLogMessage(
 		INFO,
@@ -251,7 +280,7 @@ func (c *ConnPool) NewConnection(upstream Upstream, dialFunc func(address string
 
 // attempts to retrieve a connection from the most attractive upstream
 // if it doesn't have one, returns an upstream for the caller to connect to
-func (c *ConnPool) Get() (ce *ConnEntry, upstream Upstream, err error) {
+func (c *connPool) Get() (ce *ConnEntry, upstream Upstream, err error) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -276,7 +305,7 @@ func (c *ConnPool) Get() (ce *ConnEntry, upstream Upstream, err error) {
 
 // since this reads all the maps, it needs to make sure there are no concurrent writes
 // caveat emptor
-func (c *ConnPool) Size() int {
+func (c *connPool) Size() int {
 	c.Lock()
 	defer c.Unlock()
 
@@ -287,11 +316,11 @@ func (c *ConnPool) Size() int {
 	return size
 }
 
-func (c *ConnPool) AddUpstream(r *Upstream) {
+func (c *connPool) AddUpstream(r *Upstream) {
 	c.upstreams = append(c.upstreams, r)
 }
 
-func (c *ConnPool) CloseConnection(ce *ConnEntry) {
+func (c *connPool) CloseConnection(ce *ConnEntry) {
 	c.Lock()
 	defer c.Unlock()
 	c.updateUpstream(ce)

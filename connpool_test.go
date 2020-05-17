@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func buildPool() *ConnPool {
+func buildPool() ConnPool {
 	pool := NewConnPool()
 	pool.AddUpstream(
 		&Upstream{
@@ -21,11 +21,17 @@ func buildPool() *ConnPool {
 
 func TestConnectionPoolSingleEntry(t *testing.T) {
 	pool := buildPool()
-	ce, err := pool.NewConnection(*pool.upstreams[0], func(addr string) (*dns.Conn, error) {
+	var upstream Upstream
+	if x, upstream, err := pool.Get(); (upstream == Upstream{}) {
+		t.Fatalf("could not retrieve upstream to connect to: [%v] [%v] [%s]", x, upstream, err)
+	}
+	pool.AddUpstream(&upstream)
+
+	ce, err := pool.NewConnection(upstream, func(addr string) (*dns.Conn, error) {
 		return &dns.Conn{}, nil
 	})
 	if err != nil {
-		t.Fatalf("could not make connection to upstream [%v]: %s", pool.upstreams[0], err.Error())
+		t.Fatalf("could not make connection to upstream [%v]: %s", upstream, err.Error())
 	}
 	err = pool.Add(ce)
 	if err != nil {
@@ -66,16 +72,18 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 		return UpstreamName(fmt.Sprintf("entry #%d", i))
 	}
 
-	pool.upstreams = make([]*Upstream, 0)
+	var upstreams = make([]*Upstream, 0)
 	for i := 0; i < max; i++ {
 		name := f(i)
-		pool.AddUpstream(&Upstream{
-			Name: UpstreamName(f(i)),
-		})
+		newUpstream := &Upstream {
+			Name: UpstreamName(name),
+		}
+		pool.AddUpstream(newUpstream)
 		upstreamNamesSeen[name] = false
+		upstreams = append(upstreams, newUpstream)
 	}
 
-	for _, each := range pool.upstreams {
+	for _, each := range upstreams {
 		address := each.GetAddress()
 		ce, err := pool.NewConnection(*each, func(addr string) (*dns.Conn, error) {
 			return &dns.Conn{}, nil
@@ -90,7 +98,7 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 	}
 
 	for i := 0; i < max; i++ {
-		_, upstream, err := pool.Get()
+		ce, upstream, err := pool.Get()
 		if err != nil {
 			t.Fatalf("error retrieving entry [%d] from pool [%v]: [%s]", i, pool, err)
 		}
@@ -98,6 +106,8 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 		if (upstream != Upstream{}) {
 			t.Fatalf("tried to retrieve connection from pool, got prompted to make a connection instead. size: [%d], pool: [%v], upstream: [%v] entry: [%d]", pool.Size(), pool, upstream, i)
 		}
+
+		upstreamNamesSeen[UpstreamName(ce.GetAddress())] = true
 	}
 
 }

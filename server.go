@@ -52,7 +52,7 @@ type Server interface {
 	AddUpstream(u *Upstream)
 
 	// Get a copy of the connection pool for this server
-	GetConnectionPool() *ConnPool
+	GetConnectionPool() ConnPool
 }
 
 func processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {

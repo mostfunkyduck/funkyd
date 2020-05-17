@@ -34,7 +34,6 @@ type MockConnPool struct {
 	mock.Mock
 }
 
-func (m *MockConnPool) NewConnection()
 func buildTestResources() (Server, *StubDnsClient, error) {
 	return BuildStubServer()
 }

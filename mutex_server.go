@@ -18,7 +18,7 @@ type MutexServer struct {
 	HostedCache *RecordCache
 
 	// connection pool
-	connPool *ConnPool
+	connPool ConnPool
 
 	// worker pool semaphore
 	sem *semaphore.Weighted
@@ -299,11 +299,11 @@ func (s *MutexServer) GetHostedCache() *RecordCache {
 	return s.HostedCache
 }
 
-func (s *MutexServer) GetConnectionPool() (pool *ConnPool) {
+func (s *MutexServer) GetConnectionPool() (pool ConnPool) {
 	return s.connPool
 }
 
-func NewMutexServer(cl Client, pool *ConnPool) (Server, error) {
+func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 	// seed the random generator once for upstream shuffling
 
 	config := GetConfiguration()
