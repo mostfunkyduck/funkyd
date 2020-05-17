@@ -10,6 +10,25 @@ import (
 	"runtime"
 )
 
+type MutexServer struct {
+	// lookup cache
+	Cache *RecordCache
+
+	// cache of records hosted by this server
+	HostedCache *RecordCache
+
+	// connection pool
+	connPool *ConnPool
+
+	// worker pool semaphore
+	sem *semaphore.Weighted
+
+	// client for recursive lookups
+	dnsClient Client
+
+	RWLock Lock
+}
+
 func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error) {
 	// we're supposed to connect to this upstream, no existing connections
 	// (this doesn't block)

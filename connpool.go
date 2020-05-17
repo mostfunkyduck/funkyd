@@ -6,7 +6,44 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"sort"
 	"time"
+	"sync"
 )
+
+type ConnPool struct {
+	// List of actual upstream structs
+	upstreams []*Upstream
+
+	// List of upstream names.  This is kept separate so that callers
+	// can iterate through the upstreams list by name without having
+	// to lock the actual upstreams array.
+	upstreamNames []UpstreamName
+
+	cache map[string][]*ConnEntry
+	lock  Lock
+}
+
+type CachedConn interface {
+	Close() error
+}
+
+type ConnEntry struct {
+	// The actual connection
+	Conn CachedConn
+
+	// The upstream that this connection is associated with
+	upstream Upstream
+
+	// The total RTT for this connection
+	totalRTT time.Duration
+
+	// The total exchanges for this connection
+	exchanges int
+}
+
+type Lock struct {
+	sync.RWMutex
+	locklevel int
+}
 
 // Increment the internal counters tracking successful exchanges and durations
 func (c *ConnEntry) AddExchange(rtt time.Duration) {
@@ -76,7 +113,9 @@ func (c *ConnPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress()).Set(float64(upstream.GetWeight()))
 }
 
-// Will return the most preferable upstream based on weight
+//  Will select the lowest weighted cached connection
+// falling back to the lowest weighted upstream if none exist
+// will also clean up and close slow connections
 func (c *ConnPool) getBestUpstream() (upstream Upstream) {
 	// get the first upstream with connections, default to the 0th connection on the list
 	// iterate through in order; this list is sorted based on weight
@@ -85,23 +124,6 @@ func (c *ConnPool) getBestUpstream() (upstream Upstream) {
 	for _, each := range c.upstreams {
 		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
 			// is this upstream's weight more than double the best upstream?
-			if upstream.GetWeight()*2 < each.GetWeight() {
-				// this upstream is way too heavy, and all the previous ones had no connections
-				// close all it's connections and let it cool down until we need it
-				for _, conn := range conns {
-					// do it async to avoid excessive blocking
-					// FIXME there's a slight race here, the upstream's weight will get reset
-					// FIXME each time we close a connection.  This means that there could be connections made
-					// FIXME during the teardown if it gets a better weight from one of the connections
-					// FIXME this isn't so bad, worst case scenario, we get some faster connections
-					// FIXME on the slow server
-					go func(conn *ConnEntry) {
-						c.CloseConnection(conn)
-					}(conn)
-				}
-				// let's return the best one, nothing else useable has connections
-				return upstream
-			}
 			// there were connections here, let's reuse them
 			return *each
 		}
@@ -131,6 +153,23 @@ func (c *ConnPool) updateUpstream(ce *ConnEntry) (err error) {
 	return
 }
 
+// iterate through the cache and close connections to slow upstreams
+func (c *ConnPool) closeSlowUpstreams() {
+	upstream := *c.upstreams[0]
+	for _, each := range c.upstreams {
+		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
+			if upstream.GetWeight()*2 < each.GetWeight() {
+				// this upstream is way too heavy, and all the previous ones had no connections
+				// close all it's connections and let it cool down until we need it
+				for _, conn := range conns {
+					conn.Conn.Close()
+				}
+				c.cache[each.GetAddress()] = []*ConnEntry{}
+			}
+		}
+	}
+}
+
 // adds a connection to the cache
 func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 	c.Lock()
@@ -140,6 +179,7 @@ func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 	if err = c.updateUpstream(ce); err != nil {
 		err = fmt.Errorf("couldn't update upstream weight on connection to [%s]: %s", address, err.Error())
 	}
+
 	Logger.Log(NewLogMessage(
 		INFO,
 		LogContext{
@@ -148,7 +188,6 @@ func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 		},
 		func() string { return fmt.Sprintf("connection entry [%v]", ce) },
 	))
-	// TODO handle error, it can't stop things, but we should know
 
 	if _, ok := c.cache[address]; ok {
 		c.cache[address] = append(c.cache[address], ce)
@@ -156,6 +195,7 @@ func (c *ConnPool) Add(ce *ConnEntry) (err error) {
 		// the max is greater than zero and there's nothing here, so we can just insert
 		c.cache[address] = []*ConnEntry{ce}
 	}
+	c.closeSlowUpstreams()
 	ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
 	return
 }
@@ -249,7 +289,6 @@ func (c *ConnPool) Size() int {
 
 func (c *ConnPool) AddUpstream(r *Upstream) {
 	c.upstreams = append(c.upstreams, r)
-	c.upstreamNames = append(c.upstreamNames, r.Name)
 }
 
 func (c *ConnPool) CloseConnection(ce *ConnEntry) {

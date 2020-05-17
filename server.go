@@ -12,6 +12,49 @@ import (
 	"time"
 )
 
+// making this to support dependency injection into the server
+type Client interface {
+	// Make a new connection
+	Dial(address string) (conn *dns.Conn, err error)
+
+	// Run DNS queries
+	ExchangeWithConn(s *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error)
+}
+
+// this abstraction helps us test the entire servedns path
+type ResponseWriter interface {
+	WriteMsg(*dns.Msg) error
+}
+
+type Server interface {
+	// Needs to handle DNS queries
+	dns.Handler
+
+	// Internal function to implement ServeDNS, this allows testing
+	HandleDNS(w ResponseWriter, m *dns.Msg)
+
+	// Retrieves a new connection to an upstream
+	GetConnection() (*ConnEntry, error)
+
+	// Runs a recursive query for a given record and record type
+	RecursiveQuery(domain string, rrtype uint16) (Response, string, error)
+
+	// Retrieves records from cache or an upstream
+	RetrieveRecords(domain string, rrtype uint16) (Response, string, error)
+
+	// Retrieve the server's outbound client
+	GetDnsClient() Client
+
+	// Retrieve the cache of locally hosted records
+	GetHostedCache() *RecordCache
+
+	// Add a upstream to the server's list
+	AddUpstream(u *Upstream)
+
+	// Get a copy of the connection pool for this server
+	GetConnectionPool() *ConnPool
+}
+
 func processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
 	return Response{
 		Entry:        r,

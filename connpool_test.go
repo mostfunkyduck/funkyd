@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"time"
+	"net"
 	"github.com/miekg/dns"
 	"testing"
 )
@@ -166,6 +168,34 @@ func TestConnectionPoolWeighting(t *testing.T) {
 
 	if ce2Addr, upstreamAddr := ce2.GetAddress(), upstream.GetAddress(); ce2Addr != upstreamAddr {
 		t.Fatalf("got connection to different upstream [%s] when a connection to [%s] was expected", ce2Addr, upstreamAddr)
+	}
+}
+
+func TestConnectionPoolAddSlowConnection(t *testing.T) {
+	pool := buildPool()
+	upstream, upstream1 := &Upstream{Name: "example.com"}, &Upstream{Name: "test.example.com"}
+	upstream.SetWeight(1)
+	pool.AddUpstream(upstream)
+	pool.AddUpstream(upstream1)
+
+	ce, err := pool.NewConnection(*upstream1, func (addr string) (*dns.Conn, error) {
+		server, client := net.Pipe()
+		server.Close()
+		return &dns.Conn{Conn: client}, nil
+	})
+
+	if err != nil {
+		t.Fatalf("could not make connection with upstream [%v]: %s", upstream, err)
+	}
+
+	ce.AddExchange(time.Duration(1) * time.Hour)
+	if err := pool.Add(ce); err != nil {
+		t.Fatalf("got error trying to add ce [%v] to pool [%v]: %s", ce, pool, err.Error())
+	}
+
+	ce2, u, _:= pool.Get()
+	if (u.Name != upstream.Name) {
+		t.Fatalf("expected slow connection to have been closed! [%v] [%v]", u, ce2)
 	}
 }
 
