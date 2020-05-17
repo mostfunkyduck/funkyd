@@ -28,8 +28,15 @@ func shutdownHttpHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func versionHttpHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(200)
-	w.Write([]byte("{\"version\": \"" + GetVersion() + "\"}"))
+	v := GetVersion()
+	str, err := json.Marshal(v)
+	if err != nil {
+		handleError(w, err, 500)
+	}
+
+	if _, err := w.Write([]byte(str)); err != nil {
+		handleError(w, err, 500)
+	}
 }
 
 func configHttpHandler(w http.ResponseWriter, r *http.Request) {
