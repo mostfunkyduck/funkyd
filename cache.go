@@ -144,7 +144,7 @@ func (r Response) updateTtl(rr dns.RR) {
 		Logger.Log(NewLogMessage(
 			DEBUG,
 			LogContext{
-				"what": fmt.Sprintf("attempted to update TTL on rr [%v] using response [%v]", rr, r),
+				"what": Logger.Sprintf(DEBUG, "attempted to update TTL on rr [%v] using response [%v]", rr, r),
 			},
 			nil,
 		))
@@ -400,7 +400,7 @@ func (t *trashMan) FlushResponses() {
 		INFO,
 		LogContext{
 			"what":        "trashman flushing evicted records",
-			"recordcount": string(t.ResponsesQueued()),
+			"recordcount": fmt.Sprintf("%d", t.ResponsesQueued()),
 		},
 		nil,
 	))
