@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/mock"
-	"net"
 	"testing"
 	"time"
 )
@@ -34,38 +33,25 @@ func buildTestResources() (Server, *StubDnsClient, error) {
 	return BuildStubServer()
 }
 
-func buildTestMocks(mockDial bool) (Server, *MockDnsClient, error) {
-	testClient := new(MockDnsClient)
-	s, client := net.Pipe()
-	s.Close()
-	if mockDial {
-		testClient.On("Dial", mock.Anything).Return(&dns.Conn{Conn: client}, nil)
-	}
-	server, err := NewMutexServer(testClient, NewConnPool())
+func buildTestServer(testClient *MockDnsClient, testPool *MockConnPool) (Server, error) {
+	server, err := NewMutexServer(testClient, testPool)
 	if err != nil {
-		return server, testClient, err
+		return server, err
 	}
 
-	server.AddUpstream(
-		&Upstream{
-			Name: "a.b.c.d.e.f.g",
-		},
-	)
-	server.AddUpstream(
-		&Upstream{
-			Name: "g.f.e.d.c.b.a",
-		},
-	)
-
-	return server, testClient, nil
+	return server, nil
 }
 
 func TestRecursiveQueryErrors(t *testing.T) {
-	server, cl, err := buildTestMocks(true)
+	cl := new(MockDnsClient)
+	pool := new(MockConnPool)
+	server, err := buildTestServer(cl, pool)
 	if err != nil {
 		t.Fatalf("could not build test resources: [%v]: %s", server, err)
 	}
 	cl.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(&dns.Msg{}, time.Duration(0), fmt.Errorf("no DNS for you!"))
+	pool.On("Get").Return(&ConnEntry{Conn: &dns.Conn{}}, Upstream{}, nil)
+	pool.On("CloseConnection", mock.Anything).Return(nil)
 	if r, source, err := server.RecursiveQuery("example.com", dns.TypeA); err == nil {
 		t.Fatalf("exchange errors didn't bubble up to the caller r[%v] source[%v]", r, source)
 	}

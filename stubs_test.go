@@ -7,15 +7,6 @@ import (
 	"time"
 )
 
-type MockConn struct {
-	mock.Mock
-}
-
-func (m *MockConn) Close() error {
-	ret := m.Called()
-	return ret.Error(0)
-}
-
 type StubConn struct {
 	mock.Mock
 }
