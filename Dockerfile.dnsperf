@@ -12,6 +12,6 @@ RUN apt update && \
 
 FROM base as conf
 
-ADD ./test/run_tests.sh /app/run_tests.sh
-ADD ./test/junkdomains /app/junkdomains
+COPY ./testdata/run_tests.sh /app/run_tests.sh
+COPY ./testdata/junkdomains /app/junkdomains
 ENTRYPOINT /app/run_tests.sh

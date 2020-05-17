@@ -12,9 +12,12 @@ clean:
 
 docker:
 	sudo docker-compose build
+	sudo docker build -t funkyd/dnsperf -f ./Dockerfile.dnsperf .
 
-test:
+test: docker
+	sudo docker-compose up -d
 	go test -v -bench=.*
+	./testdata/run_dnsperf.sh
 
 funkyd: *.go
 	# putting this here so that it can call the 'revision' alias
