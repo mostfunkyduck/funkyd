@@ -30,10 +30,6 @@ func (m *MockDnsClient) Dial(address string) (conn *dns.Conn, err error) {
 	return ret.Get(0).(*dns.Conn), ret.Error(1)
 }
 
-type MockConnPool struct {
-	mock.Mock
-}
-
 func buildTestResources() (Server, *StubDnsClient, error) {
 	return BuildStubServer()
 }
