@@ -117,7 +117,7 @@ func main() {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Printf("current version: %s\n", GetVersion())
+		fmt.Printf("current version: %s\n", GetVersion().String())
 		os.Exit(0)
 	}
 
@@ -126,7 +126,7 @@ func main() {
 		os.Exit(1)
 	}
 	rand.Seed(time.Now().UnixNano())
-	BuildInfoGauge.WithLabelValues(GetVersion()).Set(1)
+	BuildInfoGauge.WithLabelValues(GetVersion().String()).Set(1)
 	log.Printf("reading configuration from [%s]", *confFile)
 	// read in configuration
 	err := InitConfiguration(*confFile)
@@ -159,6 +159,7 @@ func main() {
 
 	addServer(srvUDP)
 	addServer(srvTCP)
+
 	if config.Blackhole {
 		// PSYCH!
 		err := runBlackholeServer()
@@ -166,6 +167,15 @@ func main() {
 			log.Fatalf("Failed to run blackhole server: %s", err)
 		}
 	}
+
+	Logger.Log(LogMessage {
+		Level: CRITICAL,
+		Context: LogContext {
+			"what": "starting up TCP and UDP servers",
+			"version": GetVersion().String(),
+			"port": fmt.Sprintf("%d", dnsPort),
+		},
+	})
 
 	go func(srv2 *dns.Server) {
 		if err := srvUDP.ListenAndServe(); err != nil {
