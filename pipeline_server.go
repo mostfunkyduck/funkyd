@@ -168,6 +168,7 @@ func (s *queryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
 	TotalDnsQueriesCounter.Inc()
 	queryTimer := prometheus.NewTimer(QueryTimer)
 
+	QueuedQueriesGauge.Inc()
 	s.Dispatch(Query{
 		Msg:   r,
 		Timer: queryTimer,
@@ -270,7 +271,7 @@ func newPipelineServerWorker() pipelineServerWorker {
 	}
 }
 
-func NewQueryHandler(cl Client, pool ConnPool, cm Connector, q Querier) (err error) {
+func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 	config := GetConfiguration()
 	client := cl
 	if client == nil {
@@ -285,23 +286,46 @@ func NewQueryHandler(cl Client, pool ConnPool, cm Connector, q Querier) (err err
 		pipelineServerWorker: newPipelineServerWorker(),
 	}
 
-	if cm == nil {
-		cmWorker := newPipelineServerWorker()
-		cmWorker.inboundQueryChannel = ret.outboundQueryChannel
-		cm := &connector{
-			pipelineServerWorker: cmWorker,
-			client:               client,
-			connPool:             NewConnPool(),
-		}
-		for _, name := range config.Upstreams {
-			upstream := &Upstream{
-				Name: name,
-			}
-			cm.AddUpstream(upstream)
-		}
+	// query handlers pas to cachers which pass to connectors which pass to
+	// queriers which pass to finishers
 
-		cm.Start()
+	// INIT cacher
+	cacheWorker := newPipelineServerWorker()
+	cacheWorker.inboundQueryChannel = ret.outboundQueryChannel
+	cache, err := NewCache()
+	if err != nil {
+		return fmt.Errorf("could not create record cache for cacher: %s", err.Error())
 	}
 
+	cachr := &cacher{
+		pipelineServerWorker: cacheWorker,
+		cache:                cache,
+	}
+	cachr.Start()
+
+	// INIT connector
+	cmWorker := newPipelineServerWorker()
+	cmWorker.inboundQueryChannel = cacheWorker.outboundQueryChannel
+	cm := &connector{
+		pipelineServerWorker: cmWorker,
+		client:               client,
+		connPool:             NewConnPool(),
+	}
+	for _, name := range config.Upstreams {
+		upstream := &Upstream{
+			Name: name,
+		}
+		cm.AddUpstream(upstream)
+	}
+
+	cm.Start()
+
+	// INIT querier
+	querierWorker := newPipelineServerWorker()
+	querierWorker.inboundQueryChannel = cm.outboundQueryChannel
+	querier := &querier{
+		client: client,
+	}
+	querier.Start()
 	return nil
 }

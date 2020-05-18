@@ -22,6 +22,50 @@ func TestQueryHandler(t *testing.T) {
 	}
 }
 
+func TestConnectorReuseConn(t *testing.T) {
+	testClient := &MockClient{}
+	testConnPool := &MockConnPool{}
+	testConnEntry := &ConnEntry{
+		Conn: &dns.Conn{},
+	}
+	c := &connector{
+		client:   testClient,
+		connPool: testConnPool,
+	}
+	testConnPool.On("Get", mock.Anything).Return(testConnEntry, Upstream{})
+	qu := Query{}
+	qu1, err := c.AssignConnection(qu)
+	if err != nil {
+		t.Fatalf("could not assign connection: [%v] [%v]", qu, c)
+	}
+
+	if qu1.Conn == nil {
+		t.Fatalf("successful return from connector.AssignConnection didn't attach a conn to the query struct: [%v]", qu1)
+	}
+}
+
+func TestConnectorNewConn(t *testing.T) {
+	testConnPool := &MockConnPool{}
+	testConnEntry := &ConnEntry{
+		Conn: &dns.Conn{},
+	}
+	c := &connector{
+		client:   &MockClient{},
+		connPool: testConnPool,
+	}
+	testConnPool.On("Get", mock.Anything).Return(&ConnEntry{}, Upstream{Name: "example.com"})
+	testConnPool.On("NewConnection", mock.Anything, mock.Anything).Return(testConnEntry, nil)
+	qu := Query{}
+	qu1, err := c.AssignConnection(qu)
+	if err != nil {
+		t.Fatalf("could not assign connection: [%v] [%v]", qu, c)
+	}
+
+	if qu1.Conn != testConnEntry {
+		t.Fatalf("stored connection was not used by connector: [%v] [%v]", qu1.Conn, testConnEntry)
+	}
+}
+
 func TestCacher(t *testing.T) {
 	pw := newPipelineServerWorker()
 	cache, err := NewCache()
