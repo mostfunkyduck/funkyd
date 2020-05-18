@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sys/unix"
 	"log"
 	"net"
@@ -60,7 +61,7 @@ func processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
 	return Response{
 		Entry:        r,
 		CreationTime: time.Now(),
-		Key:          domain,
+		Name:         domain,
 		Qtype:        rrtype,
 	}, nil
 }
@@ -131,4 +132,30 @@ func BuildClient() (*dns.Client, error) {
 		},
 	})
 	return cl, nil
+}
+
+// assumes that the caller will close connection upon any errors
+func attemptExchange(m *dns.Msg, ce *ConnEntry, client Client) (reply *dns.Msg, err error) {
+	address := ce.GetAddress()
+	exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
+		ExchangeTimer.WithLabelValues(address).Observe(v)
+	}),
+	)
+	reply, rtt, err := client.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
+	exchangeTimer.ObserveDuration()
+	ce.AddExchange(rtt)
+	if err != nil {
+		UpstreamErrorsCounter.WithLabelValues(address).Inc()
+		Logger.Log(NewLogMessage(
+			ERROR,
+			LogContext{
+				"what":  fmt.Sprintf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address),
+				"error": fmt.Sprintf("%s", err),
+			},
+			func() string { return fmt.Sprintf("request [%v]", m) },
+		))
+		// try the next one
+		return &dns.Msg{}, err
+	}
+	return reply, nil
 }

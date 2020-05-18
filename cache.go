@@ -98,7 +98,7 @@ type RecordCache struct {
 // DNS response cache wrapper
 type Response struct {
 	// The domain this response is for
-	Key string
+	Name string
 
 	// The actual reply message
 	Entry dns.Msg
@@ -115,7 +115,7 @@ type Response struct {
 
 // constructs a cache key from a response
 func (r Response) FormatKey() string {
-	return r.Key + string(r.Qtype)
+	return fmt.Sprintf("%s:%d", r.Name, r.Qtype)
 }
 
 func (response Response) IsExpired(rr dns.RR) bool {
@@ -176,20 +176,20 @@ func (r *RecordCache) Add(response Response) {
 	CacheSizeGauge.Set(float64(len(r.cache)))
 }
 
-func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
+func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 	// this class will clean the cache as of now, so it needs a write lock
 	r.RLock()
 	defer r.RUnlock()
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
-			"what": Logger.Sprintf(DEBUG, "cache locked, attempting to get [%s] [%d] from cache", key, qtype),
+			"what": Logger.Sprintf(DEBUG, "cache locked, attempting to get [%s] [%d] from cache", name, qtype),
 		},
 		nil,
 	))
 
 	response := Response{
-		Key:   key,
+		Name:  name,
 		Qtype: qtype,
 	}
 	response, ok := r.cache[response.FormatKey()]
@@ -245,7 +245,7 @@ func (r *RecordCache) Get(key string, qtype uint16) (Response, bool) {
 			return Response{}, false
 		}
 	}
-	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": Logger.Sprintf(DEBUG, "returning [%s] from cache get", key)}, nil))
+	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": Logger.Sprintf(DEBUG, "returning [%s] from cache get", name)}, nil))
 	return response, true
 }
 

@@ -23,7 +23,7 @@ func setupCache() (rc *RecordCache, err error) {
 
 func setupResponse(idx int) Response {
 	return Response{
-		Key:   fmt.Sprintf("%d", idx),
+		Name:  fmt.Sprintf("%d", idx),
 		Entry: dns.Msg{},
 	}
 }
@@ -44,7 +44,7 @@ func TestStorage(t *testing.T) {
 	response.Ttl = 1099 * time.Second
 	response.CreationTime = time.Now()
 	cache.Add(response)
-	cachedResponse, ok := cache.Get(response.Key, response.Qtype)
+	cachedResponse, ok := cache.Get(response.Name, response.Qtype)
 	if !ok {
 		t.Errorf("cache retrieval failed")
 		return
@@ -55,7 +55,7 @@ func TestStorage(t *testing.T) {
 	}
 
 	cache.Remove(response)
-	newrecord, ok := cache.Get(response.Key, response.Qtype)
+	newrecord, ok := cache.Get(response.Name, response.Qtype)
 	if ok {
 		t.Errorf("deletion didn't work: [%v] [%v]\n", cache, newrecord)
 	}

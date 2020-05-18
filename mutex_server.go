@@ -84,38 +84,8 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 		s.connPool.CloseConnection(ce)
 		return &ConnEntry{}, reply, fmt.Errorf("could not complete exchange with upstream: %s", err.Error())
 	}
-	return ce, reply, err
-}
-
-/**
-
-	address := ce.GetAddress()
-	exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
-		ExchangeTimer.WithLabelValues(address).Observe(v)
-	}),
-	)
-	reply, rtt, err := s.dnsClient.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
-	exchangeTimer.ObserveDuration()
-	ce.AddExchange(rtt)
-	if err != nil {
-		s.connPool.CloseConnection(ce)
-		UpstreamErrorsCounter.WithLabelValues(address).Inc()
-		Logger.Log(NewLogMessage(
-			ERROR,
-			LogContext{
-				"what":  fmt.Sprintf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address),
-				"error": fmt.Sprintf("%s", err),
-			},
-			func() string { return fmt.Sprintf("request [%v]", m) },
-		))
-		// try the next one
-		return &ConnEntry{}, &dns.Msg{}, err
-	}
-	// just in case something changes above and it reaches this success code with a non-nil error :P
-	err = nil
 	return
 }
-**/
 
 func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Response, address string, err error) {
 	RecursiveQueryCounter.Inc()

@@ -9,6 +9,27 @@ type MockCacher struct {
 	mock.Mock
 }
 
+// CheckCache provides a mock function with given fields: q
+func (_m *MockCacher) CheckCache(q Query) (Response, bool) {
+	ret := _m.Called(q)
+
+	var r0 Response
+	if rf, ok := ret.Get(0).(func(Query) Response); ok {
+		r0 = rf(q)
+	} else {
+		r0 = ret.Get(0).(Response)
+	}
+
+	var r1 bool
+	if rf, ok := ret.Get(1).(func(Query) bool); ok {
+		r1 = rf(q)
+	} else {
+		r1 = ret.Get(1).(bool)
+	}
+
+	return r0, r1
+}
+
 // Dispatch provides a mock function with given fields: q
 func (_m *MockCacher) Dispatch(q Query) {
 	_m.Called(q)

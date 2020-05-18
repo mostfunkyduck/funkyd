@@ -25,7 +25,7 @@ func ParseZoneFile(zone string) ([]Response, error) {
 			Answer: []dns.RR{rr},
 		}
 		response := Response{
-			Key:          rr.Header().Name,
+			Name:         rr.Header().Name,
 			Entry:        cachedMsg,
 			Ttl:          time.Duration(rr.Header().Ttl) * time.Second,
 			CreationTime: time.Now(),
