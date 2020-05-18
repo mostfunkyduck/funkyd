@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/miekg/dns"
+	"time"
 	"github.com/stretchr/testify/mock"
 	"testing"
 )
@@ -102,4 +103,39 @@ func TestCacher(t *testing.T) {
 	if !ok {
 		t.Fatalf("failed to find item that shold have been in cache, cached: [%v], qu: [%v], c [%v]", cached, qu, c)
 	}
+}
+
+func TestQuerier(t *testing.T) {
+	pw := newPipelineServerWorker()
+	mockClient := &MockClient{}
+	reply := &dns.Msg{}
+	mockClient.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(1), nil)
+	q := querier{
+		pipelineServerWorker: pw,
+		client: mockClient,
+	}
+	testConnEntry := &ConnEntry {
+		Conn: &dns.Conn{},
+	}
+
+	qu := Query {
+		Conn:	testConnEntry,
+		Msg: &dns.Msg{
+			Question: []dns.Question{
+				dns.Question {
+					Name: "example.com",
+					Qtype: 123,
+				},
+			},
+		},
+	}
+	qu1, err := q.Query(qu)
+	if err != nil {
+		t.Fatalf("error during query: %s", err.Error())
+	}
+
+	if qu1.Reply != reply {
+		t.Fatalf("got incorrect reply to dns query: [%v] != [%v]", qu1.Reply, reply)
+	}
+
 }
