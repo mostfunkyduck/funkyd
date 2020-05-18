@@ -6,7 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type QueryHandlerWorker interface {
+type PipelineServerWorker interface {
 	// starts the worker gr(s)
 	Start()
 
@@ -19,14 +19,15 @@ type QueryHandlerWorker interface {
 
 // checks queries against the cache
 type Cacher interface {
-	QueryHandlerWorker
+	PipelineServerWorker
 
-	// 
+	// determines if this query is cached
+	IsCached(q Query) (ConnEntry, bool)
 }
 
 // does actual queries
 type Querier interface {
-	QueryHandlerWorker
+	PipelineServerWorker
 
 	// looks up records
   Query(q Query) (Query, error)
@@ -34,7 +35,7 @@ type Querier interface {
 
 // Pairs outbound queries with connections
 type Connector interface {
-	QueryHandlerWorker
+	PipelineServerWorker
 
 	// Assigns a given connection to a query
 	AssignConnection(q Query) Query
@@ -80,7 +81,7 @@ type connector struct {
 
 // handles initial connection
 type QueryHandler struct {
-	QueryHandlerWorker
+	PipelineServerWorker
 	connectionChannel chan Query
 }
 type querier struct {
@@ -174,7 +175,91 @@ func (q *querier) Dispatch(qu Query) {
 	q.successfulQueriesChannel <- qu
 }
 
+// assumes that the caller will close connection upon any errors
+func attemptExchange(m *dns.Msg, ce *ConnEntry, client Client) (reply *dns.Msg, err error) {
+	address := ce.GetAddress()
+	exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
+		ExchangeTimer.WithLabelValues(address).Observe(v)
+	}),
+	)
+	reply, rtt, err := client.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
+	exchangeTimer.ObserveDuration()
+	ce.AddExchange(rtt)
+	if err != nil {
+		UpstreamErrorsCounter.WithLabelValues(address).Inc()
+		Logger.Log(NewLogMessage(
+			ERROR,
+			LogContext{
+				"what":  fmt.Sprintf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address),
+				"error": fmt.Sprintf("%s", err),
+			},
+			func() string { return fmt.Sprintf("request [%v]", m) },
+		))
+		// try the next one
+		return &dns.Msg{}, err
+	}
+	return reply, nil
+}
+
 func (q *querier) Query(qu Query) (query Query, err error) {
+	RecursiveQueryCounter.Inc()
+
+	m := &dns.Msg{}
+	m.SetQuestion(qu.Msg.Question[0].Name, qu.Msg.Question[0].Qtype)
+	m.RecursionDesired = true
+
+	config := GetConfiguration()
+
+	for i := 0; i <= config.UpstreamRetries; i++ {
+		if r, err = attemptExchange(m, qu.Conn, q.client); err == nil {
+			break
+		}
+		if err != nil {
+			Logger.Log(NewLogMessage(
+				WARNING,
+				LogContext{
+					"what":  "failed exchange with upstreams",
+					"error": err.Error(),
+					"next":  fmt.Sprintf("retrying until config.UpstreamRetries is met. currently on attempt [%d]/[%d]", i, config.UpstreamRetries),
+				},
+				nil,
+			))
+		}
+		// continue trying
+	}
+
+	if err != nil {
+		// we failed to complete any exchanges
+		Logger.Log(NewLogMessage(
+			ERROR,
+			LogContext{
+				"what":    "failed to complete any exchanges with upstreams",
+				"error":   err.Error(),
+				"note":    "this is the most recent error, other errors may have been logged during the failed attempt(s)",
+				"address": domain,
+				"rrtype":  string(rrtype),
+				"next":    "aborting query attempt",
+			},
+			nil,
+		))
+		return Response{}, "", fmt.Errorf("failed to complete any exchanges with upstreams: %s", err)
+	}
+
+	if err := s.connPool.Add(ce); err != nil {
+		Logger.Log(NewLogMessage(
+			ERROR,
+			LogContext{
+				"what":  "could not add connection entry to pool (enable debug logging for variable value)!",
+				"error": err.Error(),
+				"next":  "continuing without cache, disregarding error",
+			},
+			func() string { return fmt.Sprintf("ce: [%v]", ce) },
+		))
+	}
+
+	// this one worked, proceeding
+	reply, err := processResults(*r, domain, rrtype)
+	return reply, ce.GetAddress(), err
 	return qu, nil
 }
 func (q *querier) Start() {
