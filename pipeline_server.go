@@ -30,7 +30,7 @@ type Querier interface {
 	PipelineServerWorker
 
 	// looks up records
-  Query(q Query) (Query, error)
+	Query(q Query) (Query, error)
 }
 
 // Pairs outbound queries with connections
@@ -55,22 +55,21 @@ type Query struct {
 	Conn *ConnEntry
 
 	// the prometheus timer to use for this query
-	Timer	*prometheus.Timer
+	Timer *prometheus.Timer
 
 	// the reply received for this query
-	Reply	*dns.Msg
+	Reply *dns.Msg
 }
-
 
 type connector struct {
 	// channel for accepting new queries
 	connectionChannel chan Query
 
 	// channel for dispatching failed queries
-	failedQueriesChannel	chan Query
+	failedQueriesChannel chan Query
 
 	// channel for dispatching successful queries
-	successfulQueriesChannel	chan Query
+	successfulQueriesChannel chan Query
 
 	// connection pool
 	connPool ConnPool
@@ -86,7 +85,7 @@ type QueryHandler struct {
 }
 type querier struct {
 	// channel to receive queries on
-	queryChannel	chan Query
+	queryChannel chan Query
 
 	// channel to dispatch failed queries to
 	failedQueriesChannel chan Query
@@ -104,12 +103,12 @@ func (c connector) Start() {
 		for query := range c.connectionChannel {
 			assignedQuery, err := c.AssignConnection(query)
 			if err != nil {
-				Logger.Log(LogMessage {
+				Logger.Log(LogMessage{
 					Level: ERROR,
-					Context: LogContext {
-						"what": "connection manager failed to assign connection to query",
+					Context: LogContext{
+						"what":  "connection manager failed to assign connection to query",
 						"query": assignedQuery.Msg.String(),
-						"next": "dispatching to be SERVFAILed",
+						"next":  "dispatching to be SERVFAILed",
 					},
 				})
 				c.Fail(assignedQuery)
@@ -119,7 +118,7 @@ func (c connector) Start() {
 	}()
 }
 
-func (c *connector) DispatchQuery (q Query) {
+func (c *connector) DispatchQuery(q Query) {
 	c.successfulQueriesChannel <- q
 }
 
@@ -134,11 +133,11 @@ func (c *connector) AssignConnection(q Query) (assignedQuery Query, err error) {
 		// we need to make a new connection
 		connEntry, err = c.connPool.NewConnection(upstream, c.client.Dial)
 		if err != nil {
-			Logger.Log(LogMessage {
+			Logger.Log(LogMessage{
 				Level: WARNING,
-				Context: LogContext {
-					"what": "failed to make connection to upstream",
-					"address": upstream.GetAddress(),
+				Context: LogContext{
+					"what":     "failed to make connection to upstream",
+					"address":  upstream.GetAddress(),
 					"upstream": Logger.Sprintf(DEBUG, "%v", upstream),
 				},
 			})
@@ -153,19 +152,16 @@ func (s *QueryHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (s *QueryHandler) HandleDNS(w dns.ResponseWriter, r *dns.Msg) {
-	//s.resolverChannel <- query
 	TotalDnsQueriesCounter.Inc()
-	// we got this query, but it isn't getting handled until we get the sem
-	QueuedQueriesGauge.Inc()
 	queryTimer := prometheus.NewTimer(QueryTimer)
 
-	s.connectionChannel <- Query {
-		Msg: r,
+	QueuedQueriesGauge.Inc()
+	s.connectionChannel <- Query{
+		Msg:   r,
 		Timer: queryTimer,
 	}
 	QueuedQueriesGauge.Dec()
 }
-
 
 func (q *querier) Fail(qu Query) {
 	q.failedQueriesChannel <- qu
@@ -265,16 +261,16 @@ func (q *querier) Query(qu Query) (query Query, err error) {
 func (q *querier) Start() {
 
 	go func() {
-		for query := range q.queryChannel	{
+		for query := range q.queryChannel {
 			query, err := q.Query(query)
 			if err != nil {
-				Logger.Log(LogMessage {
+				Logger.Log(LogMessage{
 					Level: ERROR,
 					Context: LogContext{
-						"what":   "error retrieving record for domain",
+						"what":  "error retrieving record for domain",
 						"query": query.Msg.String(),
-						"error":  err.Error(),
-						"next":   "failing query",
+						"error": err.Error(),
+						"next":  "failing query",
 					},
 				})
 				q.Fail(query)
@@ -296,16 +292,16 @@ func NewQueryHandler(cl Client, pool ConnPool, cm Connector) (err error) {
 		}
 	}
 
-	ret := &QueryHandler {
+	ret := &QueryHandler{
 		connectionChannel: make(chan Query),
 	}
 
 	if cm == nil {
-		cm := &connector {
-			client:	client,
-			connPool:	NewConnPool(),
-			failedQueriesChannel: make(chan Query),
-			connectionChannel: ret.connectionChannel,
+		cm := &connector{
+			client:                   client,
+			connPool:                 NewConnPool(),
+			failedQueriesChannel:     make(chan Query),
+			connectionChannel:        ret.connectionChannel,
 			successfulQueriesChannel: make(chan Query),
 		}
 		for _, name := range config.Upstreams {

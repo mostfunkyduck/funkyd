@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+type StubResponseWriter struct {
+}
+
+func (s *StubResponseWriter) WriteMsg(m *dns.Msg) error {
+	return nil
+}
+
 type StubJanitor struct {
 	mock.Mock
 }

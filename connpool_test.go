@@ -43,7 +43,7 @@ func TestConnectionPoolSingleEntry(t *testing.T) {
 		t.Errorf("pool [%v] had incorrect size [%d] after adding ce [%v], expected %d", pool, size, ce, 1)
 	}
 
-	ce1, upstream:= pool.Get()
+	ce1, upstream := pool.Get()
 
 	if (upstream != Upstream{}) {
 		t.Fatalf("tried to retrieve connection from pool, was prompted to make a new connection instead, upstream was [%v]", upstream)

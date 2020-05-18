@@ -86,6 +86,7 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 	}
 	return ce, reply, err
 }
+
 /**
 
 	address := ce.GetAddress()
@@ -332,7 +333,7 @@ func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 
 	ret := &MutexServer{
 		BaseServer: base,
-		connPool:    pool,
+		connPool:   pool,
 		sem:        sem,
 		RWLock:     Lock{},
 	}
