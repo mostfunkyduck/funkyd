@@ -14,54 +14,24 @@ import (
 )
 
 type MutexServer struct {
-	// lookup cache
-	Cache *RecordCache
-
-	// cache of records hosted by this server
-	HostedCache *RecordCache
-
-	// connection pool
-	connPool ConnPool
+	BaseServer
 
 	// worker pool semaphore
 	sem *semaphore.Weighted
 
-	// client for recursive lookups
-	dnsClient Client
-
 	RWLock Lock
-}
 
-func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error) {
-	// we're supposed to connect to this upstream, no existing connections
-	// (this doesn't block)
-	ce, err = s.connPool.NewConnection(upstream, s.dnsClient.Dial)
-	if err != nil {
-		// leaving this at DEBUG since we're passing the actual error up
-		address := upstream.GetAddress()
-		Logger.Log(NewLogMessage(
-			DEBUG,
-			LogContext{
-				"error":   err.Error(),
-				"what":    "could not make new connection to upstream",
-				"address": address,
-			},
-			func() string { return fmt.Sprintf("upstream:[%v]", upstream) },
-		))
-		return &ConnEntry{}, fmt.Errorf("could not connect to upstream (%s): %s", address, err.Error())
-	}
-	return
+	// connection pool
+	connPool ConnPool
 }
 
 func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
-	// There are 3 cases: cache miss, cache hit, and error
-	// responses:
+	// There are 2 cases: cache miss and cache hit
 	// 	cache miss, no error: attempt to make a new connection
 	//  cache hit: return the conn entry
-	//  error: return the error and an empty conn entry
 	// first check the conn pool (this blocks)
-	ce, upstream, err := s.connPool.Get()
-	if err == nil && (upstream != Upstream{}) {
+	ce, upstream := s.connPool.Get()
+	if (upstream != Upstream{}) {
 		// cache miss, no error
 		Logger.Log(NewLogMessage(
 			INFO,
@@ -75,9 +45,6 @@ func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
 		if ce, err = s.newConnection(upstream); err != nil {
 			return &ConnEntry{}, err
 		}
-	} else if err != nil {
-		// error
-		return &ConnEntry{}, err
 	}
 
 	// cache hit
@@ -307,8 +274,6 @@ func (s *MutexServer) GetConnectionPool() (pool ConnPool) {
 }
 
 func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
-	// seed the random generator once for upstream shuffling
-
 	config := GetConfiguration()
 	client := cl
 	if client == nil {
@@ -350,14 +315,18 @@ func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 		return nil, fmt.Errorf("couldn't initialize hosted cache: %s", err)
 	}
 
-	ret := &MutexServer{
+	base := BaseServer{
 		Cache:       newcache,
 		HostedCache: hostedcache,
 		dnsClient:   client,
-		connPool:    pool,
-		sem:         sem,
 	}
 
+	ret := &MutexServer{
+		BaseServer: base,
+		connPool:    pool,
+		sem:        sem,
+		RWLock:     Lock{},
+	}
 	upstreamNames := config.Upstreams
 	for _, name := range upstreamNames {
 		ret.AddUpstream(&Upstream{
@@ -365,4 +334,25 @@ func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 		})
 	}
 	return ret, nil
+}
+
+func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error) {
+	// we're supposed to connect to this upstream, no existing connections
+	// (this doesn't block)
+	ce, err = s.connPool.NewConnection(upstream, s.dnsClient.Dial)
+	if err != nil {
+		// leaving this at DEBUG since we're passing the actual error up
+		address := upstream.GetAddress()
+		Logger.Log(NewLogMessage(
+			DEBUG,
+			LogContext{
+				"error":   err.Error(),
+				"what":    "could not make new connection to upstream",
+				"address": address,
+			},
+			func() string { return fmt.Sprintf("upstream:[%v]", upstream) },
+		))
+		return &ConnEntry{}, fmt.Errorf("could not connect to upstream (%s): %s", address, err.Error())
+	}
+	return
 }

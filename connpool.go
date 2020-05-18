@@ -11,11 +11,13 @@ import (
 	"time"
 )
 
+type DialFunc func(address string) (*dns.Conn, error)
+
 type ConnPool interface {
 	// Retrieves a new connection from the pool
 	// returns an upstream and a nil connentry if a new
 	// connection must be made
-	Get() (ce *ConnEntry, upstream Upstream, err error)
+	Get() (ce *ConnEntry, upstream Upstream)
 
 	// Adds a new connection to the pool
 	Add(ce *ConnEntry) (err error)
@@ -26,16 +28,9 @@ type ConnPool interface {
 	// Close a given connection
 	CloseConnection(ce *ConnEntry)
 
-	// Locks the pool
-	Lock()
-
-	// Unlocks the pool
-	Unlock()
-
 	// Adds a new connection to the pool targetting a given upstream and using a given dial function to make the connection.
 	// The abstraction of dialFunc is for dependency injection
-	NewConnection(upstream Upstream, dialFunc func(address string) (*dns.Conn, error)) (ce *ConnEntry, err error)
-
+	NewConnection(upstream Upstream, dialFunc DialFunc) (ce *ConnEntry, err error)
 	// Returns the number of open connections in the pool
 	Size() int
 }
@@ -95,7 +90,7 @@ func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
 		weight = currentRTT / UpstreamWeight(ce.exchanges)
 	}
 	Logger.Log(NewLogMessage(
-		INFO,
+		DEBUG,
 		LogContext{
 			"what":               "setting weight on connection",
 			"connection_address": ce.GetAddress(),
@@ -232,7 +227,7 @@ func (c *connPool) Add(ce *ConnEntry) (err error) {
 }
 
 // Makes a new connection to a given upstream, wraps the whole thing in conn entry
-func (c *connPool) NewConnection(upstream Upstream, dialFunc func(address string) (*dns.Conn, error)) (ce *ConnEntry, err error) {
+func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce *ConnEntry, err error) {
 	address := upstream.GetAddress()
 	Logger.Log(NewLogMessage(
 		INFO,
@@ -282,7 +277,7 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc func(address string
 
 // attempts to retrieve a connection from the most attractive upstream
 // if it doesn't have one, returns an upstream for the caller to connect to
-func (c *connPool) Get() (ce *ConnEntry, upstream Upstream, err error) {
+func (c *connPool) Get() (ce *ConnEntry, upstream Upstream) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -298,11 +293,11 @@ func (c *connPool) Get() (ce *ConnEntry, upstream Upstream, err error) {
 			// pop off a connection and return it
 			ce, c.cache[address] = conns[i], conns[j:]
 			ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
-			return ce, Upstream{}, nil
+			return ce, Upstream{}
 		}
 	}
 	// we couldn't find a single connection, tell the caller to make a new one to the best weighted upstream
-	return &ConnEntry{}, upstream, nil
+	return &ConnEntry{}, upstream
 }
 
 // since this reads all the maps, it needs to make sure there are no concurrent writes

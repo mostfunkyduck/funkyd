@@ -22,8 +22,8 @@ func buildPool() ConnPool {
 func TestConnectionPoolSingleEntry(t *testing.T) {
 	pool := buildPool()
 	var upstream Upstream
-	if x, upstream, err := pool.Get(); (upstream == Upstream{}) {
-		t.Fatalf("could not retrieve upstream to connect to: [%v] [%v] [%s]", x, upstream, err)
+	if x, upstream := pool.Get(); (upstream == Upstream{}) {
+		t.Fatalf("could not retrieve upstream to connect to: [%v] [%v]", x, upstream)
 	}
 	pool.AddUpstream(&upstream)
 
@@ -43,10 +43,7 @@ func TestConnectionPoolSingleEntry(t *testing.T) {
 		t.Errorf("pool [%v] had incorrect size [%d] after adding ce [%v], expected %d", pool, size, ce, 1)
 	}
 
-	ce1, upstream, err := pool.Get()
-	if err != nil {
-		t.Fatalf("failed to retrieve new connection from pool [%v]", pool)
-	}
+	ce1, upstream:= pool.Get()
 
 	if (upstream != Upstream{}) {
 		t.Fatalf("tried to retrieve connection from pool, was prompted to make a new connection instead, upstream was [%v]", upstream)
@@ -98,10 +95,7 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 	}
 
 	for i := 0; i < max; i++ {
-		ce, upstream, err := pool.Get()
-		if err != nil {
-			t.Fatalf("error retrieving entry [%d] from pool [%v]: [%s]", i, pool, err)
-		}
+		ce, upstream := pool.Get()
 
 		if (upstream != Upstream{}) {
 			t.Fatalf("tried to retrieve connection from pool, got prompted to make a connection instead. size: [%d], pool: [%v], upstream: [%v] entry: [%d]", pool.Size(), pool, upstream, i)
@@ -171,7 +165,7 @@ func TestConnectionPoolWeighting(t *testing.T) {
 
 	// Once a connection is in the pool, does it get returned or does the pool prompt for additional connections?
 	// this also tests that lower weighted resolvers don't take precedence over ones with connections
-	ce2, upstream2, err := pool.Get()
+	ce2, upstream2 := pool.Get()
 	if (upstream2 != Upstream{}) {
 		t.Fatalf("expected to receive cached connection, got prompted to connect to [%v] instead", upstream2)
 	}
@@ -203,7 +197,7 @@ func TestConnectionPoolAddSlowConnection(t *testing.T) {
 		t.Fatalf("got error trying to add ce [%v] to pool [%v]: %s", ce, pool, err.Error())
 	}
 
-	ce2, u, _ := pool.Get()
+	ce2, u := pool.Get()
 	if u.Name != upstream.Name {
 		t.Fatalf("expected slow connection to have been closed! [%v] [%v]", u, ce2)
 	}

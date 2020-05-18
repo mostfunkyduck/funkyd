@@ -111,6 +111,7 @@ func buildDialer() (dialer *net.Dialer) {
 		Control: sockoptSetter,
 	}
 }
+
 func BuildClient() (*dns.Client, error) {
 	config := GetConfiguration()
 	cl := &dns.Client{
@@ -123,7 +124,7 @@ func BuildClient() (*dns.Client, error) {
 		},
 	}
 	Logger.Log(LogMessage{
-		Level: CRITICAL,
+		Level: INFO,
 		Context: LogContext{
 			"what": "instantiated new dns client in TLS mode",
 			"next": "returning for use",
