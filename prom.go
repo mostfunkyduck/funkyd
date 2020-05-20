@@ -24,7 +24,12 @@ var (
 		Name: "funkyd_upstream_weight_gauge",
 		Help: "the weights of the upstreams in the system, only meaningful when broken down per address",
 	},
-		[]string{"address"},
+		[]string{
+			// the upstream address
+			"address",
+			// if the upstream is cooling, this will have the time left
+			// in its cooldown period
+			"cooling"},
 	)
 	ConnPoolSizeGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "funkyd_conn_pool_size",

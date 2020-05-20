@@ -69,6 +69,9 @@ type ConnEntry struct {
 
 	// The total exchanges for this connection
 	exchanges int
+
+	// whether this connection hit an error
+	error	bool
 }
 
 type Lock struct {
@@ -76,6 +79,15 @@ type Lock struct {
 	locklevel int
 }
 
+// flag this connentry as having errors
+func (c *ConnEntry) AddError() {
+	c.error = true
+}
+
+// retrieves error status
+func (c *ConnEntry) Error() bool {
+	return c.error
+}
 // Increment the internal counters tracking successful exchanges and durations
 func (c *ConnEntry) AddExchange(rtt time.Duration) {
 	c.totalRTT += rtt
@@ -141,12 +153,25 @@ func (c *connPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 	// we want to prefer the upstream with the fastest connections and
 	// ditch them when they start to slow down
 	upstream.SetWeight(ce.GetWeight())
-	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress()).Set(float64(upstream.GetWeight()))
+	if ce.Error() {
+		config := GetConfiguration()
+		cooldownPeriod := time.Duration(500) * time.Millisecond
+		if config.CooldownPeriod != 0 {
+			cooldownPeriod = config.CooldownPeriod
+		}
+		upstream.Cooldown(cooldownPeriod)
+	}
+	cooling := upstream.IsCooling()
+	coolingString := "0"
+	if cooling {
+		coolingString = fmt.Sprintf("%d", time.Now().Sub(upstream.WakeupTime()) * time.Millisecond)
+	}
+
+	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), coolingString).Set(float64(upstream.GetWeight()))
 }
 
-//  Will select the lowest weighted cached connection
+// Will select the lowest weighted cached connection
 // falling back to the lowest weighted upstream if none exist
-// will also clean up and close slow connections
 func (c *connPool) getBestUpstream() (upstream Upstream) {
 	// get the first upstream with connections, default to the 0th connection on the list
 	// iterate through in order; this list is sorted based on weight
@@ -154,11 +179,14 @@ func (c *connPool) getBestUpstream() (upstream Upstream) {
 	// goal: find the highest lowest weighted upstream with connections
 	for _, each := range c.upstreams {
 		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
-			// is this upstream's weight more than double the best upstream?
 			// there were connections here, let's reuse them
-			return *each
+			// but first! is this upstream actually ready to use?
+			if ! each.IsCooling() {
+				return *each
+			}
 		}
 	}
+	// no cached connections, let's make a new one based on weight
 	return upstream
 }
 
