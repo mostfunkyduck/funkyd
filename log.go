@@ -79,7 +79,6 @@ func (l logger) output(output string) {
 	fmt.Fprintf(l.handle, "%s\n", output)
 }
 
-
 func (l logger) SetLevel(level LogLevel) {
 	l.level = level
 }

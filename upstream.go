@@ -20,7 +20,7 @@ type Upstream struct {
 	weight UpstreamWeight
 
 	// if set and in the future, wait for this time before making connections
-	wakeupTime	time.Time
+	wakeupTime time.Time
 }
 
 func (u *Upstream) GetAddress() string {

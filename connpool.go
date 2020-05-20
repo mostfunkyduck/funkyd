@@ -71,7 +71,7 @@ type ConnEntry struct {
 	exchanges int
 
 	// whether this connection hit an error
-	error	bool
+	error bool
 }
 
 type Lock struct {
@@ -88,6 +88,7 @@ func (c *ConnEntry) AddError() {
 func (c *ConnEntry) Error() bool {
 	return c.error
 }
+
 // Increment the internal counters tracking successful exchanges and durations
 func (c *ConnEntry) AddExchange(rtt time.Duration) {
 	c.totalRTT += rtt
@@ -153,21 +154,7 @@ func (c *connPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 	// we want to prefer the upstream with the fastest connections and
 	// ditch them when they start to slow down
 	upstream.SetWeight(ce.GetWeight())
-	if ce.Error() {
-		config := GetConfiguration()
-		cooldownPeriod := time.Duration(500) * time.Millisecond
-		if config.CooldownPeriod != 0 {
-			cooldownPeriod = config.CooldownPeriod
-		}
-		upstream.Cooldown(cooldownPeriod)
-	}
-	cooling := upstream.IsCooling()
-	coolingString := "0"
-	if cooling {
-		coolingString = fmt.Sprintf("%d", time.Now().Sub(upstream.WakeupTime()) * time.Millisecond)
-	}
 
-	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), coolingString).Set(float64(upstream.GetWeight()))
 }
 
 // Will select the lowest weighted cached connection
@@ -181,7 +168,7 @@ func (c *connPool) getBestUpstream() (upstream Upstream) {
 		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
 			// there were connections here, let's reuse them
 			// but first! is this upstream actually ready to use?
-			if ! each.IsCooling() {
+			if !each.IsCooling() {
 				return *each
 			}
 		}
@@ -206,9 +193,35 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 		return fmt.Errorf("could not add conn entry with address [%s]: %s", address, err.Error())
 	}
 
-	c.weightUpstream(upstream, *ce)
+	// we may need to update after a fresh connection errored out
+	// so ignore weightless connections
+	if ce.GetWeight() != 0 {
+		c.weightUpstream(upstream, *ce)
+	}
+
+	if ce.Error() {
+		c.coolUpstream(upstream)
+	}
 
 	c.sortUpstreams()
+
+	coolingString := "0"
+	if upstream.IsCooling() {
+		// Wake Up Time: wut :)
+		wut := upstream.WakeupTime()
+		coolingString = fmt.Sprintf(
+			"%d-%d-%d %d:%d:%d:%d",
+			wut.Year(),
+			wut.Month(),
+			wut.Day(),
+			wut.Hour(),
+			wut.Minute(),
+			wut.Second(),
+			time.Duration(wut.Nanosecond())/time.Millisecond,
+		)
+	}
+
+	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), coolingString).Set(float64(upstream.GetWeight()))
 	return
 }
 
@@ -355,4 +368,16 @@ func (c *connPool) CloseConnection(ce *ConnEntry) {
 	defer c.Unlock()
 	c.updateUpstream(ce)
 	ce.Conn.Close()
+}
+
+// take an upstream pointer (so that we can update the actual record)
+// and tell it to cool down
+func (c *connPool) coolUpstream(upstream *Upstream) (err error) {
+	config := GetConfiguration()
+	cooldownPeriod := time.Duration(500) * time.Millisecond
+	if config.CooldownPeriod != 0 {
+		cooldownPeriod = config.CooldownPeriod
+	}
+	upstream.Cooldown(cooldownPeriod)
+	return nil
 }

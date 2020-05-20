@@ -30,7 +30,7 @@ type Configuration struct {
 	// how long to cool upstreams down for if they start throwing errors
 	// cooling upstreams will only be used if no other options are available
 	// the 0-value equates to 500 ms
-	CooldownPeriod	time.Duration
+	CooldownPeriod time.Duration
 
 	// Whether or not to use TCP Fast Open (hint: this is an experimental protocol
 	// that slows the hell out of things when the upstream doesn't support it,
