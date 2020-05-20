@@ -42,9 +42,9 @@ func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error
 		Logger.Log(LogMessage{
 			Level: DEBUG,
 			Context: LogContext{
-				"error":   err.Error(),
-				"what":    "could not make new connection to upstream",
-				"address": address,
+				"error":    err.Error(),
+				"what":     "could not make new connection to upstream",
+				"address":  address,
 				"upstream": Logger.Sprintf(DEBUG, "upstream: [%v]", upstream),
 			},
 		})
@@ -135,8 +135,8 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 		Logger.Log(LogMessage{
 			Level: DEBUG,
 			Context: LogContext{
-				"what":  fmt.Sprintf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address),
-				"error": fmt.Sprintf("%s", err),
+				"what":    fmt.Sprintf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address),
+				"error":   fmt.Sprintf("%s", err),
 				"request": Logger.Sprintf(DEBUG, "request [%v]", m),
 			},
 		})

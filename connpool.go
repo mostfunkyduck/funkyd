@@ -201,6 +201,7 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 
 	if ce.Error() {
 		c.coolUpstream(upstream)
+		c.purgeUpstream(*upstream)
 	}
 
 	c.sortUpstreams()
@@ -222,7 +223,7 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 	}
 
 	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), coolingString).Set(float64(upstream.GetWeight()))
-	return
+	return nil
 }
 
 // iterate through the cache and close connections to slow upstreams
@@ -380,8 +381,22 @@ func (c *connPool) coolUpstream(upstream *Upstream) (err error) {
 	config := GetConfiguration()
 	cooldownPeriod := time.Duration(500) * time.Millisecond
 	if config.CooldownPeriod != 0 {
-		cooldownPeriod = config.CooldownPeriod
+		cooldownPeriod = config.CooldownPeriod * time.Millisecond
 	}
 	upstream.Cooldown(cooldownPeriod)
 	return nil
+}
+
+// closes all connections that belong to a given upstream
+// non re-entrant
+func (c *connPool) purgeUpstream(upstream Upstream) {
+	addr := upstream.GetAddress()
+	if _, ok := c.cache[addr]; ok {
+		for _, conn := range c.cache[addr] {
+			// run async so as not to block queries that might be calling
+			go func(conn *ConnEntry) {
+				c.CloseConnection(conn)
+			}(conn)
+		}
+	}
 }
