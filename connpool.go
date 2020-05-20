@@ -294,17 +294,20 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc func(address string
 	conn, err := dialFunc(address)
 	dialDuration := tlsTimer.ObserveDuration()
 	if err != nil {
-		Logger.Log(NewLogMessage(
-			ERROR,
-			LogContext{
-				"what":    "connection error",
-				"address": address,
-				"error":   err.Error(),
-			},
-			nil,
-		))
+		// errors! better cool this upstream
+		c.Lock()
+		defer c.Unlock()
+
+		upstream, upstreamErr := c.getUpstreamByAddress(address)
+		if upstreamErr != nil {
+			err = fmt.Errorf("could not retrieve upstream for %s: %s: %s", address, upstreamErr.Error(), err.Error())
+			return &ConnEntry{}, err
+		}
+
+		c.coolUpstream(upstream)
+
 		FailedConnectionsCounter.WithLabelValues(address).Inc()
-		return &ConnEntry{}, err
+		return &ConnEntry{}, fmt.Errorf("cooling upstream, could not connect to [%s]: %s", address, err.Error())
 	}
 
 	Logger.Log(NewLogMessage(
@@ -372,6 +375,7 @@ func (c *connPool) CloseConnection(ce *ConnEntry) {
 
 // take an upstream pointer (so that we can update the actual record)
 // and tell it to cool down
+// non re-entrant, needs outside locking
 func (c *connPool) coolUpstream(upstream *Upstream) (err error) {
 	config := GetConfiguration()
 	cooldownPeriod := time.Duration(500) * time.Millisecond

@@ -39,16 +39,16 @@ func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error
 	if err != nil {
 		// leaving this at DEBUG since we're passing the actual error up
 		address := upstream.GetAddress()
-		Logger.Log(NewLogMessage(
-			DEBUG,
-			LogContext{
+		Logger.Log(LogMessage{
+			Level: DEBUG,
+			Context: LogContext{
 				"error":   err.Error(),
 				"what":    "could not make new connection to upstream",
 				"address": address,
+				"upstream": Logger.Sprintf(DEBUG, "upstream: [%v]", upstream),
 			},
-			func() string { return fmt.Sprintf("upstream:[%v]", upstream) },
-		))
-		return &ConnEntry{}, fmt.Errorf("could not connect to upstream (%s): %s", address, err.Error())
+		})
+		return &ConnEntry{}, fmt.Errorf("could not connect to upstream [%s]: %s", address, err.Error())
 	}
 	return
 }
@@ -102,15 +102,14 @@ func (s *MutexServer) AddUpstream(r *Upstream) {
 func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg, err error) {
 	ce, err = s.GetConnection()
 	if err != nil {
-		Logger.Log(NewLogMessage(
-			ERROR,
-			LogContext{
+		Logger.Log(LogMessage{
+			Level: INFO,
+			Context: LogContext{
 				"what":  "error getting connection from pool",
 				"error": err.Error(),
-				"next":  "aborting exchange attempt"},
-			nil,
-		))
-		return
+			},
+		})
+		return ce, nil, fmt.Errorf("error getting connection from pool: %s", err.Error())
 	}
 
 	address := ce.GetAddress()
@@ -132,20 +131,18 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 		**/
 		s.connPool.CloseConnection(ce)
 		UpstreamErrorsCounter.WithLabelValues(address).Inc()
-		Logger.Log(NewLogMessage(
-			ERROR,
-			LogContext{
+		Logger.Log(LogMessage{
+			Level: DEBUG,
+			Context: LogContext{
 				"what":  fmt.Sprintf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address),
 				"error": fmt.Sprintf("%s", err),
+				"request": Logger.Sprintf(DEBUG, "request [%v]", m),
 			},
-			func() string { return fmt.Sprintf("request [%v]", m) },
-		))
+		})
 		// try the next one
-		return &ConnEntry{}, &dns.Msg{}, err
+		return &ConnEntry{}, &dns.Msg{}, fmt.Errorf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address)
 	}
-	// just in case something changes above and it reaches this success code with a non-nil error :P
-	err = nil
-	return
+	return ce, reply, nil
 }
 
 func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Response, address string, err error) {
