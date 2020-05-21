@@ -92,21 +92,12 @@ func TestCacher(t *testing.T) {
 	pw := NewPipelineServerWorker()
 	cache, err := NewCache()
 	if err != nil {
-		t.Fatalf("couldn't init cache: %s", err.Error())
+		t.Fatalf("couldn't do cache: %s", err)
 	}
 
 	c := &PipelineCacher{
 		pipelineServerWorker: pw,
 		cache:                cache,
-	}
-	qu := Query{}
-	if cached, ok := c.CheckCache(qu); ok {
-		t.Fatalf("no error returned when empty query was passed in, cached: [%v]", cached)
-	}
-
-	qu = Query{Msg: &dns.Msg{}}
-	if cached, ok := c.CheckCache(qu); ok {
-		t.Fatalf("no error returned when empty query was passed in, cached: [%v]", cached)
 	}
 
 	msg := &dns.Msg{
@@ -117,6 +108,11 @@ func TestCacher(t *testing.T) {
 				Qclass: 1,
 			},
 		},
+	}
+
+	qu := Query{}
+	if cached, ok := c.CheckCache(qu); ok {
+		t.Fatalf("no error returned when empty query was passed in, cached: [%v]", cached)
 	}
 
 	qu = Query{
@@ -131,32 +127,42 @@ func TestCacher(t *testing.T) {
 }
 
 func TestCacherStart(t *testing.T) {
-	cw := NewPipelineServerWorker()
-	cache, err := NewCache()
-	if err != nil {
-		t.Fatalf("could not create cache: %s", err)
-	}
-	cacher := &PipelineCacher{
-		pipelineServerWorker: cw,
-		cache:	cache,
-	}
-	cacher.Start()
-	defer func() {cacher.cancelChannel <- true}()
-
-	q := Query{}
-	cacher.inboundQueryChannel <- q
-	<-cacher.failedQueryChannel
-
-	q = Query {
-		Msg: &dns.Msg{
-			Question: []dns.Question{
-				dns.Question{
-					Name:  "example.com",
-					Qtype: 1,
-				},
+	msg := &dns.Msg{
+		Question: []dns.Question{
+			dns.Question{
+				Name:   "example.com",
+				Qtype:  1,
+				Qclass: 1,
 			},
 		},
 	}
+
+	cw := NewPipelineServerWorker()
+	cache := &MockCache{}
+
+	cache.On("Get", "", 0).Return(Response{}, false).Once()
+	cache.On("Get", "example.com", uint16(1)).Return(Response{Entry: *msg}, true)
+	cache.On("Add", mock.Anything).Return()
+
+	cacher := &PipelineCacher{
+		pipelineServerWorker: cw,
+		cachingChannel:       make(chan Query),
+		cache:                cache,
+	}
+	cacher.Start()
+	defer func() { cacher.cancelChannel <- true }()
+
+	q := Query{}
+	// does the cacher fail empty queries?
+	cacher.inboundQueryChannel <- q
+	<-cacher.failedQueryChannel
+
+	q = Query{
+		Msg: msg,
+	}
+
+	// does the cacher dispatch valid queries?
+	cacher.cachingChannel <- q
 	cacher.inboundQueryChannel <- q
 	q = <-cacher.outboundQueryChannel
 	if q.Reply == nil {
@@ -197,4 +203,53 @@ func TestQuerier(t *testing.T) {
 		t.Fatalf("got incorrect reply to dns query: [%v] != [%v]", qu1.Reply, reply)
 	}
 
+}
+
+func TestQuerierStart(t *testing.T) {
+	pw := NewPipelineServerWorker()
+	mockClient := &MockClient{}
+	a, err := dns.NewRR("example.com.	123	IN	A	10.0.0.0")
+	if err != nil {
+		t.Fatalf("couldn't create answer for query: %s", err)
+	}
+	reply := &dns.Msg{
+		Answer: []dns.RR{
+			a,
+		},
+	}
+	mockClient.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(1), nil).Once()
+	mockClient.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(1), fmt.Errorf("blah blah blah"))
+
+	q := PipelineQuerier{
+		pipelineServerWorker: pw,
+		client:               mockClient,
+	}
+
+	q.Start()
+	defer func() { q.cancelChannel <- true }()
+	testConnEntry := &ConnEntry{
+		Conn: &dns.Conn{},
+	}
+
+	// First, test a good query
+	qu := Query{
+		Conn: testConnEntry,
+		Msg: &dns.Msg{
+			Question: []dns.Question{
+				dns.Question{
+					Name:  "example.com",
+					Qtype: 123,
+				},
+			},
+		},
+	}
+
+	q.inboundQueryChannel <- qu
+	outcome := <-q.outboundQueryChannel
+	if outcome.Reply.String() != reply.String() {
+		t.Fatalf("got wrong reply from querier: outcome [%v] reply [%v]", outcome, reply)
+	}
+
+	q.inboundQueryChannel <- qu
+	<-q.failedQueryChannel
 }

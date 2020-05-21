@@ -15,7 +15,10 @@ docker:
 	sudo docker build -t funkyd/dnsperf -f ./Dockerfile.dnsperf .
 
 unittest: mocks
-	go test -v -bench=.*
+	# running unit tests with 1s timeout
+	go test -v -timeout 1s
+	# running benchmarks with 30s timeout
+	go test -v -timeout 30s -bench=.*
 
 performancetest: docker
 	sudo docker-compose up -d
