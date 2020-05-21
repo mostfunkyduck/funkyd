@@ -73,15 +73,15 @@ func (_m *MockServer) GetDnsClient() Client {
 }
 
 // GetHostedCache provides a mock function with given fields:
-func (_m *MockServer) GetHostedCache() *RecordCache {
+func (_m *MockServer) GetHostedCache() Cache {
 	ret := _m.Called()
 
-	var r0 *RecordCache
-	if rf, ok := ret.Get(0).(func() *RecordCache); ok {
+	var r0 Cache
+	if rf, ok := ret.Get(0).(func() Cache); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*RecordCache)
+			r0 = ret.Get(0).(Cache)
 		}
 	}
 

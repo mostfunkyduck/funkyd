@@ -9,6 +9,11 @@ type MockCacher struct {
 	mock.Mock
 }
 
+// CacheQuery provides a mock function with given fields: q
+func (_m *MockCacher) CacheQuery(q Query) {
+	_m.Called(q)
+}
+
 // CheckCache provides a mock function with given fields: q
 func (_m *MockCacher) CheckCache(q Query) (Response, bool) {
 	ret := _m.Called(q)

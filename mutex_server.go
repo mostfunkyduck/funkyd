@@ -245,7 +245,7 @@ func (s *MutexServer) GetDnsClient() Client {
 	return s.dnsClient
 }
 
-func (s *MutexServer) GetHostedCache() *RecordCache {
+func (s *MutexServer) GetHostedCache() Cache {
 	return s.HostedCache
 }
 

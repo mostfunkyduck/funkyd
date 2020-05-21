@@ -40,15 +40,15 @@ type pipelineServerWorker struct {
 }
 
 // Handles initial connection acceptance
-// Dispatch: forwards to cacher
-// Fail: forwards to failer for servfailing
+// Dispatch: forwards to PipelineCacher
+// Fail: forwards to PipelineFailer for servfailing
 type QueryHandler interface {
 	PipelineServerWorker
 	ServeDNS(w dns.ResponseWriter, r *dns.Msg)
 }
 
 // checks queries against the cache
-// Dispatch: cache hit - forwards to querier
+// Dispatch: cache hit - forwards to PipelineQuerier
 // Fail: cache miss - forward to connector
 type Cacher interface {
 	PipelineServerWorker
@@ -61,8 +61,8 @@ type Cacher interface {
 }
 
 // Pairs outbound queries with connections
-// Dispatch: connection is successful, forward to querier
-// Fail: connection failure, forward to failer for servfail
+// Dispatch: connection is successful, forward to PipelineQuerier
+// Fail: connection failure, forward to PipelineFailer for servfail
 type Connector interface {
 	PipelineServerWorker
 
@@ -100,29 +100,29 @@ type connector struct {
 	client Client
 }
 
-type cacher struct {
+type PipelineCacher struct {
 	pipelineServerWorker
 
 	// the actual cache
-	cache *RecordCache
+	cache Cache
 
 	//a channel for inbound queries to be cached
 	cachingChannel chan Query
 }
 
 // handles initial inbound query acceptance
-type queryHandler struct {
+type PipelineQueryHandler struct {
 	pipelineServerWorker
 }
 
-type querier struct {
+type PipelineQuerier struct {
 	pipelineServerWorker
 
 	// client to send outbound queries with
 	client Client
 }
 
-type failer struct {
+type PipelineFailer struct {
 	pipelineServerWorker
 }
 
@@ -174,16 +174,16 @@ func (c connector) Start() {
 						"next":  "dispatching to be SERVFAILed",
 					},
 				})
-				// fail to failer
+				// fail to PipelineFailer
 				c.Fail(assignedQuery)
 			}
-			// FIXME there seems to be a case where the querier will be blocked
+			// FIXME there seems to be a case where the PipelineQuerier will be blocked
 			// FIXME on the connector accepting whilst the connector is blocked
-			// FIXME on the querier rejecting messages
-			// FIXME one possible solution might be to have the querier do connection
+			// FIXME on the PipelineQuerier rejecting messages
+			// FIXME one possible solution might be to have the PipelineQuerier do connection
 			// FIXME mgm't, essentially collapsing this into that, there'd be more work
-			// FIXME than i want to handle in the querier, but that's better than deadlock
-			// dispatch to querier
+			// FIXME than i want to handle in the PipelineQuerier, but that's better than deadlock
+			// dispatch to PipelineQuerier
 			c.Dispatch(assignedQuery)
 		}
 	}()
@@ -222,16 +222,16 @@ func (c *connector) AssignConnection(q Query) (assignedQuery Query, err error) {
 }
 
 /** query handler **/
-func (q *queryHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+func (q *PipelineQueryHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	q.HandleDNS(w, r)
 }
 
-func (s *queryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
+func (s *PipelineQueryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
 	TotalDnsQueriesCounter.Inc()
 	queryTimer := prometheus.NewTimer(QueryTimer)
 
 	QueuedQueriesGauge.Inc()
-	// dispatch to cacher
+	// dispatch to PipelineCacher
 	s.Dispatch(Query{
 		Msg:   r,
 		Timer: queryTimer,
@@ -239,8 +239,8 @@ func (s *queryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
 	QueuedQueriesGauge.Dec()
 }
 
-/** querier **/
-func (q *querier) Query(qu Query) (query Query, err error) {
+/** PipelineQuerier **/
+func (q *PipelineQuerier) Query(qu Query) (query Query, err error) {
 	query = qu
 	RecursiveQueryCounter.Inc()
 
@@ -268,7 +268,7 @@ func (q *querier) Query(qu Query) (query Query, err error) {
 	return query, nil
 }
 
-func (q *querier) Start() {
+func (q *PipelineQuerier) Start() {
 
 	go func() {
 		for query := range q.inboundQueryChannel {
@@ -283,7 +283,7 @@ func (q *querier) Start() {
 						"next":  "failing query",
 					},
 				})
-				// fail to failer
+				// fail to PipelineFailer
 				q.Fail(query)
 				continue
 			}
@@ -293,11 +293,11 @@ func (q *querier) Start() {
 	}()
 }
 
-/** cacher **/
+/** PipelineCacher **/
 
 // checks for a query in the cache, the cache object handles
 // expiry
-func (c *cacher) CheckCache(q Query) (result Response, ok bool) {
+func (c *PipelineCacher) CheckCache(q Query) (result Response, ok bool) {
 	if (q.Msg == nil) || len(q.Msg.Question) < 1 {
 		return Response{}, false
 	}
@@ -305,7 +305,7 @@ func (c *cacher) CheckCache(q Query) (result Response, ok bool) {
 }
 
 // adds a connection to the cache
-func (c *cacher) CacheQuery(q Query) {
+func (c *PipelineCacher) CacheQuery(q Query) {
 	question := q.Msg.Question[0]
 	r := Response{
 		Entry:        *q.Msg,
@@ -316,14 +316,14 @@ func (c *cacher) CacheQuery(q Query) {
 	c.cache.Add(r)
 }
 
-func (c *cacher) Start() {
+func (c *PipelineCacher) Start() {
 	go func() {
 		for {
 			select {
 			case q := <-c.inboundQueryChannel:
 				if resp, ok := c.CheckCache(q); ok {
 					q.Reply = resp.Entry.Copy()
-					// pass to querier
+					// pass to PipelineQuerier
 					c.Dispatch(q)
 					break
 				}
@@ -333,7 +333,7 @@ func (c *cacher) Start() {
 				c.CacheQuery(q)
 				// no need to do anything else
 			case _ = <-c.cancelChannel:
-				logCancellation("cacher")
+				logCancellation("PipelineCacher")
 				return
 			}
 		}
@@ -351,7 +351,7 @@ func logCancellation(name string) {
 		},
 	})
 }
-func newPipelineServerWorker() pipelineServerWorker {
+func NewPipelineServerWorker() pipelineServerWorker {
 	return pipelineServerWorker{
 		//TODO evaluate whether we want these buffered or unbuffered
 		inboundQueryChannel:  make(chan Query, 100),
@@ -372,31 +372,31 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 		}
 	}
 
-	ret := &queryHandler{
-		pipelineServerWorker: newPipelineServerWorker(),
+	ret := &PipelineQueryHandler{
+		pipelineServerWorker: NewPipelineServerWorker(),
 	}
 
 	// query handlers pas to cachers which pass to connectors which pass to
 	// queriers which pass to repliers, failers are there to quickly dispatch servfails when the need arises
 
-	// INIT failer
-	failerWorker := newPipelineServerWorker()
-	failer := &failer{
+	// INIT PipelineFailer
+	failerWorker := NewPipelineServerWorker()
+	PipelineFailer := &PipelineFailer{
 		pipelineServerWorker: failerWorker,
 	}
 	ret.failedQueryChannel = failerWorker.inboundQueryChannel
-	defer failer.Start()
+	defer PipelineFailer.Start()
 
-	// INIT cacher
-	cacheWorker := newPipelineServerWorker()
+	// INIT PipelineCacher
+	cacheWorker := NewPipelineServerWorker()
 	cacheWorker.inboundQueryChannel = ret.outboundQueryChannel
-	// failed channel is going to connect to the querier in a hot minute
+	// failed channel is going to connect to the PipelineQuerier in a hot minute
 	cache, err := NewCache()
 	if err != nil {
-		return fmt.Errorf("could not create record cache for cacher: %s", err.Error())
+		return fmt.Errorf("could not create record cache for PipelineCacher: %s", err.Error())
 	}
 
-	cachr := &cacher{
+	cachr := &PipelineCacher{
 		pipelineServerWorker: cacheWorker,
 		cache:                cache,
 		cachingChannel:       make(chan Query, 100),
@@ -404,7 +404,7 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 	defer cachr.Start()
 
 	// INIT connector
-	cmWorker := newPipelineServerWorker()
+	cmWorker := NewPipelineServerWorker()
 	cmWorker.inboundQueryChannel = cacheWorker.outboundQueryChannel
 	cmWorker.failedQueryChannel = failerWorker.inboundQueryChannel
 	cm := &connector{
@@ -421,16 +421,16 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 
 	defer cm.Start()
 
-	// INIT querier
-	querierWorker := newPipelineServerWorker()
+	// INIT PipelineQuerier
+	querierWorker := NewPipelineServerWorker()
 	querierWorker.inboundQueryChannel = cm.outboundQueryChannel
 
 	cacheWorker.failedQueryChannel = querierWorker.inboundQueryChannel
 
 	querierWorker.failedQueryChannel = cm.inboundQueryChannel
-	querier := &querier{
+	PipelineQuerier := &PipelineQuerier{
 		client: client,
 	}
-	defer querier.Start()
+	defer PipelineQuerier.Start()
 	return nil
 }

@@ -10,6 +10,44 @@ import (
 	"time"
 )
 
+type Cache interface {
+	// Add to the cache
+	Add(response Response)
+
+	// Retrieve a response by name and query type
+	Get(name string, qtype uint16) (r Response, ok bool)
+
+	// get current cache size
+	Size() int
+
+	// remove a response from the cache
+	Remove(response Response)
+
+	// remove a slice of responses from the cache
+	RemoveSlice(responses []Response)
+
+	// generic lock and unlock functions
+	RLock()
+
+	RUnlock()
+
+	Lock()
+
+	Unlock()
+
+	// removes stale entries from the cache
+	Clean() int
+
+	// starts the goroutines that handle cache cleaning and eviction
+	StartCleaningCrew()
+
+	// stops said cleaning crew
+	StopCleaningCrew()
+
+	// queues a response to be removed from the cache
+	Evict(resp Response)
+}
+
 // Cleans the cache periodically, evicting all bad responses for the trashman
 type Janitor interface {
 	// Starts the janitor
@@ -295,7 +333,6 @@ func (r *RecordCache) Unlock() {
 	r.lock.Unlock()
 }
 
-/** cleaning is currently off, we seem to do well enough without it, TBD a real caching algo **/
 func (r *RecordCache) Clean() int {
 	var records_deleted = 0
 	r.Lock()
@@ -354,7 +391,7 @@ func (r *RecordCache) Evict(resp Response) {
 	}()
 }
 
-func NewCache() (*RecordCache, error) {
+func NewCache() (Cache, error) {
 	ret := &RecordCache{
 		cache: make(map[string]Response),
 	}

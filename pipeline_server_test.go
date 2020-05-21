@@ -9,9 +9,9 @@ import (
 )
 
 func TestQueryHandler(t *testing.T) {
-	pw := newPipelineServerWorker()
+	pw := NewPipelineServerWorker()
 	pw.outboundQueryChannel = make(chan Query, 1)
-	q := &queryHandler{
+	q := &PipelineQueryHandler{
 		pipelineServerWorker: pw,
 	}
 	msg := &dns.Msg{}
@@ -89,13 +89,13 @@ func TestConnectorNewConn(t *testing.T) {
 }
 
 func TestCacher(t *testing.T) {
-	pw := newPipelineServerWorker()
+	pw := NewPipelineServerWorker()
 	cache, err := NewCache()
 	if err != nil {
 		t.Fatalf("couldn't init cache: %s", err.Error())
 	}
 
-	c := &cacher{
+	c := &PipelineCacher{
 		pipelineServerWorker: pw,
 		cache:                cache,
 	}
@@ -130,12 +130,46 @@ func TestCacher(t *testing.T) {
 	}
 }
 
+func TestCacherStart(t *testing.T) {
+	cw := NewPipelineServerWorker()
+	cache, err := NewCache()
+	if err != nil {
+		t.Fatalf("could not create cache: %s", err)
+	}
+	cacher := &PipelineCacher{
+		pipelineServerWorker: cw,
+		cache:	cache,
+	}
+	cacher.Start()
+	defer func() {cacher.cancelChannel <- true}()
+
+	q := Query{}
+	cacher.inboundQueryChannel <- q
+	<-cacher.failedQueryChannel
+
+	q = Query {
+		Msg: &dns.Msg{
+			Question: []dns.Question{
+				dns.Question{
+					Name:  "example.com",
+					Qtype: 1,
+				},
+			},
+		},
+	}
+	cacher.inboundQueryChannel <- q
+	q = <-cacher.outboundQueryChannel
+	if q.Reply == nil {
+		t.Fatalf("did not get valid reply on cache hit, q: [%v]", q)
+	}
+}
+
 func TestQuerier(t *testing.T) {
-	pw := newPipelineServerWorker()
+	pw := NewPipelineServerWorker()
 	mockClient := &MockClient{}
 	reply := &dns.Msg{}
 	mockClient.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(1), nil)
-	q := querier{
+	q := PipelineQuerier{
 		pipelineServerWorker: pw,
 		client:               mockClient,
 	}

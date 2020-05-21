@@ -9,10 +9,12 @@ import (
 )
 
 func setupCache() (rc *RecordCache, err error) {
-	rc, err = NewCache()
+	rawCache, err := NewCache()
 	if err != nil {
 		return nil, err
 	}
+
+	rc = rawCache.(*RecordCache)
 	// the janitor will get in the way of unit testing as it automatically
 	// purges recoords, better to leave it stubbed
 	rc.Janitor = &StubJanitor{}

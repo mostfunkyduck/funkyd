@@ -48,7 +48,7 @@ type Server interface {
 	GetDnsClient() Client
 
 	// Retrieve the cache of locally hosted records
-	GetHostedCache() *RecordCache
+	GetHostedCache() Cache
 
 	// Add a upstream to the server's list
 	AddUpstream(u *Upstream)
