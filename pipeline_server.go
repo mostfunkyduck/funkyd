@@ -169,6 +169,12 @@ func (c connector) Start() {
 				// fail to failer
 				c.Fail(assignedQuery)
 			}
+			// FIXME there seems to be a case where the querier will be blocked
+			// FIXME on the connector accepting whilst the connector is blocked
+			// FIXME on the querier rejecting messages
+			// FIXME one possible solution might be to have the querier do connection
+			// FIXME mgm't, essentially collapsing this into that, there'd be more work
+			// FIXME than i want to handle in the querier, but that's better than deadlock
 			// dispatch to querier
 			c.Dispatch(assignedQuery)
 		}
