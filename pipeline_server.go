@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+/** Worker Interfaces **/
+
+// Basic functions for a pipeline worker
 type PipelineServerWorker interface {
 	// starts the worker gr(s)
 	Start()
@@ -18,6 +21,7 @@ type PipelineServerWorker interface {
 	Fail(q Query)
 }
 
+// Basic implementation for a pipeline worker
 type pipelineServerWorker struct {
 	PipelineServerWorker
 	// channel for accepting new queries
@@ -30,7 +34,17 @@ type pipelineServerWorker struct {
 	outboundQueryChannel chan Query
 }
 
+// Handles initial connection acceptance
+// Dispatch: forwards to cacher
+// Fail: forwards to failer for servfailing
+type QueryHandler interface {
+	PipelineServerWorker
+	ServeDNS(w dns.ResponseWriter, r *dns.Msg)
+}
+
 // checks queries against the cache
+// Dispatch: cache hit - forwards to querier
+// Fail: cache miss - forward to connector
 type Cacher interface {
 	PipelineServerWorker
 
@@ -38,15 +52,9 @@ type Cacher interface {
 	CheckCache(q Query) (Response, bool)
 }
 
-// does actual queries
-type Querier interface {
-	PipelineServerWorker
-
-	// looks up records
-	Query(q Query) (Query, error)
-}
-
 // Pairs outbound queries with connections
+// Dispatch: connection is successful, forward to querier
+// Fail: connection failure, forward to failer for servfail
 type Connector interface {
 	PipelineServerWorker
 
@@ -57,27 +65,22 @@ type Connector interface {
 	AddUpstream(u *Upstream)
 }
 
-// Handles initial connection acceptance
-type QueryHandler interface {
+// does actual queries
+// Dispatch: query successful, forward to replier for happy response
+// Fail: send back to connector for a new connection, this will keep happening until the connector gives up
+type Querier interface {
 	PipelineServerWorker
-	ServeDNS(w dns.ResponseWriter, r *dns.Msg)
+
+	// looks up records
+	Query(q Query) (Query, error)
 }
-type Query struct {
-	// The query payload
-	Msg *dns.Msg
 
-	// The target upstream
-	Upstream Upstream
-
-	// The connection to use
-	Conn *ConnEntry
-
-	// the prometheus timer to use for this query
-	Timer *prometheus.Timer
-
-	// the reply received for this query
-	Reply *dns.Msg
+// fails a query by sending servfail to the original query
+type Failer interface {
+	PipelineServerWorker
 }
+
+/** Worker Implementations **/
 
 type connector struct {
 	pipelineServerWorker
@@ -108,6 +111,32 @@ type querier struct {
 	client Client
 }
 
+type failer struct {
+	pipelineServerWorker
+}
+
+// Context variable for queries, passed through pipeline to all workers
+type Query struct {
+	// The query payload
+	Msg *dns.Msg
+
+	// The target upstream
+	Upstream Upstream
+
+	// The connection to use
+	Conn *ConnEntry
+
+	// how many times this query has had to retry a connection
+	ConnectionRetries int
+
+	// the prometheus timer to use for this query
+	Timer *prometheus.Timer
+
+	// the reply received for this query
+	Reply *dns.Msg
+}
+
+/** base worker functions **/
 func (p *pipelineServerWorker) Dispatch(q Query) {
 	p.outboundQueryChannel <- q
 }
@@ -115,6 +144,8 @@ func (p *pipelineServerWorker) Dispatch(q Query) {
 func (p *pipelineServerWorker) Fail(q Query) {
 	p.failedQueryChannel <- q
 }
+
+/** connector **/
 func (c *connector) AddUpstream(u *Upstream) {
 	c.connPool.AddUpstream(u)
 }
@@ -132,8 +163,10 @@ func (c connector) Start() {
 						"next":  "dispatching to be SERVFAILed",
 					},
 				})
+				// fail to failer
 				c.Fail(assignedQuery)
 			}
+			// dispatch to querier
 			c.Dispatch(assignedQuery)
 		}
 	}()
@@ -143,23 +176,35 @@ func (c *connector) AssignConnection(q Query) (assignedQuery Query, err error) {
 	assignedQuery = q
 	connEntry, upstream := c.connPool.Get()
 	if (upstream != Upstream{}) {
+		var finalError error
 		// we need to make a new connection
-		connEntry, err = c.connPool.NewConnection(upstream, c.client.Dial)
+		for i := assignedQuery.ConnectionRetries; i < GetConfiguration().UpstreamRetries; i++ {
+			connEntry, err = c.connPool.NewConnection(upstream, c.client.Dial)
+			assignedQuery.ConnectionRetries++
+			if err != nil {
+				Logger.Log(LogMessage{
+					Level: WARNING,
+					Context: LogContext{
+						"what":     "failed to make connection to upstream",
+						"attempt":  fmt.Sprintf("%d/%d", i, GetConfiguration().UpstreamRetries),
+						"address":  upstream.GetAddress(),
+						"upstream": Logger.Sprintf(DEBUG, "%v", upstream),
+					},
+				})
+				finalError = fmt.Errorf("failed to connect to [%s]: %s: %s", upstream.GetAddress(), err, finalError)
+				continue
+			}
+			break
+		}
 		if err != nil {
-			Logger.Log(LogMessage{
-				Level: WARNING,
-				Context: LogContext{
-					"what":     "failed to make connection to upstream",
-					"address":  upstream.GetAddress(),
-					"upstream": Logger.Sprintf(DEBUG, "%v", upstream),
-				},
-			})
-			return Query{}, err
+			return Query{}, fmt.Errorf("failed to make any connections to upstream %s: [%s]", upstream.GetAddress(), finalError)
 		}
 	}
 	assignedQuery.Conn = connEntry
 	return assignedQuery, nil
 }
+
+/** query handler **/
 func (q *queryHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	q.HandleDNS(w, r)
 }
@@ -169,6 +214,7 @@ func (s *queryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
 	queryTimer := prometheus.NewTimer(QueryTimer)
 
 	QueuedQueriesGauge.Inc()
+	// dispatch to cacher
 	s.Dispatch(Query{
 		Msg:   r,
 		Timer: queryTimer,
@@ -176,50 +222,33 @@ func (s *queryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
 	QueuedQueriesGauge.Dec()
 }
 
+/** querier **/
 func (q *querier) Query(qu Query) (query Query, err error) {
+	query = qu
 	RecursiveQueryCounter.Inc()
 
 	m := &dns.Msg{}
-	m.SetQuestion(qu.Msg.Question[0].Name, qu.Msg.Question[0].Qtype)
+	m.SetQuestion(query.Msg.Question[0].Name, query.Msg.Question[0].Qtype)
 	m.RecursionDesired = true
 
-	config := GetConfiguration()
-
-	for i := 0; i <= config.UpstreamRetries; i++ {
-		if reply, err := attemptExchange(m, qu.Conn, q.client); err == nil {
-			qu.Reply = reply
-			break
-		}
-		if err != nil {
-			Logger.Log(NewLogMessage(
-				WARNING,
-				LogContext{
-					"what":  "failed exchange with upstreams",
-					"error": err.Error(),
-					"next":  fmt.Sprintf("retrying until config.UpstreamRetries is met. currently on attempt [%d]/[%d]", i, config.UpstreamRetries),
-				},
-				nil,
-			))
-		}
-		// continue trying
-	}
-
-	if err != nil {
-		// we failed to complete any exchanges
+	var reply *dns.Msg
+	if reply, err = attemptExchange(m, query.Conn, q.client); err != nil {
 		Logger.Log(NewLogMessage(
 			WARNING,
 			LogContext{
-				"what":    "failed to complete any exchanges with upstreams",
-				"error":   err.Error(),
-				"note":    "this is the most recent error, other errors may have been logged during the failed attempt(s)",
-				"address": qu.Conn.GetAddress(),
-				"next":    "aborting query attempt",
+				"what":  "failed exchange with upstreams",
+				"error": err.Error(),
 			},
 			nil,
 		))
-		return qu, fmt.Errorf("failed to complete any exchanges with upstreams: %s", err.Error())
+		// this connection is tainted, try another one
+		query.ConnectionRetries++
+		// bail
+		return query, fmt.Errorf("failed to exchange query %s: %s", m.String(), err)
 	}
-	return qu, nil
+
+	query.Reply = reply.Copy()
+	return query, nil
 }
 
 func (q *querier) Start() {
@@ -237,14 +266,17 @@ func (q *querier) Start() {
 						"next":  "failing query",
 					},
 				})
+				// fail to failer
 				q.Fail(query)
 				continue
 			}
+			// dispatch to replier
 			q.Dispatch(query)
 		}
 	}()
 }
 
+/** cacher **/
 func (c *cacher) CheckCache(q Query) (result Response, ok bool) {
 	if (q.Msg == nil) || len(q.Msg.Question) < 1 {
 		return Response{}, false
@@ -262,6 +294,22 @@ func (c *cacher) CacheQuery(q Query) {
 	}
 	c.cache.Add(r)
 }
+
+func (c *cacher) Start() {
+	go func() {
+		for q := range c.inboundQueryChannel {
+			if resp, ok := c.CheckCache(q); ok {
+				q.Reply = resp.Entry.Copy()
+				c.Dispatch(q)
+				continue
+			}
+			c.CacheQuery(q)
+			c.Fail(q)
+		}
+	}()
+}
+
+/** generic functions **/
 
 func newPipelineServerWorker() pipelineServerWorker {
 	return pipelineServerWorker{
@@ -287,11 +335,20 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 	}
 
 	// query handlers pas to cachers which pass to connectors which pass to
-	// queriers which pass to finishers
+	// queriers which pass to repliers, failers are there to quickly dispatch servfails when the need arises
+
+	// INIT failer
+	failerWorker := newPipelineServerWorker()
+	failer := &failer{
+		pipelineServerWorker: failerWorker,
+	}
+	ret.failedQueryChannel = failerWorker.inboundQueryChannel
+	defer failer.Start()
 
 	// INIT cacher
 	cacheWorker := newPipelineServerWorker()
 	cacheWorker.inboundQueryChannel = ret.outboundQueryChannel
+	// failed channel is going to connect to the querier in a hot minute
 	cache, err := NewCache()
 	if err != nil {
 		return fmt.Errorf("could not create record cache for cacher: %s", err.Error())
@@ -301,11 +358,12 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 		pipelineServerWorker: cacheWorker,
 		cache:                cache,
 	}
-	cachr.Start()
+	defer cachr.Start()
 
 	// INIT connector
 	cmWorker := newPipelineServerWorker()
 	cmWorker.inboundQueryChannel = cacheWorker.outboundQueryChannel
+	cmWorker.failedQueryChannel = failerWorker.inboundQueryChannel
 	cm := &connector{
 		pipelineServerWorker: cmWorker,
 		client:               client,
@@ -318,14 +376,18 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 		cm.AddUpstream(upstream)
 	}
 
-	cm.Start()
+	defer cm.Start()
 
 	// INIT querier
 	querierWorker := newPipelineServerWorker()
 	querierWorker.inboundQueryChannel = cm.outboundQueryChannel
+
+	cacheWorker.failedQueryChannel = querierWorker.inboundQueryChannel
+
+	querierWorker.failedQueryChannel = cm.inboundQueryChannel
 	querier := &querier{
 		client: client,
 	}
-	querier.Start()
+	defer querier.Start()
 	return nil
 }
