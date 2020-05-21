@@ -32,6 +32,11 @@ type pipelineServerWorker struct {
 
 	// channel for dispatching successful queries
 	outboundQueryChannel chan Query
+
+	// cancel channel - mainly for testing, nobody
+	// else is likely to have this channel
+	// TODO evaluate some kind of global cancellation
+	cancelChannel chan bool
 }
 
 // Handles initial connection acceptance
@@ -50,6 +55,9 @@ type Cacher interface {
 
 	// determines if this query is cached
 	CheckCache(q Query) (Response, bool)
+
+	// adds a query to the cache
+	CacheQuery(q Query)
 }
 
 // Pairs outbound queries with connections
@@ -286,6 +294,9 @@ func (q *querier) Start() {
 }
 
 /** cacher **/
+
+// checks for a query in the cache, the cache object handles
+// expiry
 func (c *cacher) CheckCache(q Query) (result Response, ok bool) {
 	if (q.Msg == nil) || len(q.Msg.Question) < 1 {
 		return Response{}, false
@@ -293,6 +304,7 @@ func (c *cacher) CheckCache(q Query) (result Response, ok bool) {
 	return c.cache.Get(q.Msg.Question[0].Name, q.Msg.Question[0].Qtype)
 }
 
+// adds a connection to the cache
 func (c *cacher) CacheQuery(q Query) {
 	question := q.Msg.Question[0]
 	r := Response{
@@ -320,6 +332,9 @@ func (c *cacher) Start() {
 			case q := <-c.cachingChannel:
 				c.CacheQuery(q)
 				// no need to do anything else
+			case _ = <-c.cancelChannel:
+				logCancellation("cacher")
+				return
 			}
 		}
 	}()
@@ -327,12 +342,22 @@ func (c *cacher) Start() {
 
 /** generic functions **/
 
+func logCancellation(name string) {
+	Logger.Log(LogMessage{
+		Level: ERROR,
+		Context: LogContext{
+			"what":        "cancelling worker thread",
+			"thread_name": name,
+		},
+	})
+}
 func newPipelineServerWorker() pipelineServerWorker {
 	return pipelineServerWorker{
 		//TODO evaluate whether we want these buffered or unbuffered
 		inboundQueryChannel:  make(chan Query, 100),
 		outboundQueryChannel: make(chan Query, 100),
 		failedQueryChannel:   make(chan Query, 100),
+		cancelChannel:        make(chan bool),
 	}
 }
 
