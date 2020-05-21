@@ -97,6 +97,9 @@ type cacher struct {
 
 	// the actual cache
 	cache *RecordCache
+
+	//a channel for inbound queries to be cached
+	cachingChannel chan Query
 }
 
 // handles initial inbound query acceptance
@@ -297,14 +300,21 @@ func (c *cacher) CacheQuery(q Query) {
 
 func (c *cacher) Start() {
 	go func() {
-		for q := range c.inboundQueryChannel {
-			if resp, ok := c.CheckCache(q); ok {
-				q.Reply = resp.Entry.Copy()
-				c.Dispatch(q)
-				continue
+		for {
+			select {
+			case q := <-c.inboundQueryChannel:
+				if resp, ok := c.CheckCache(q); ok {
+					q.Reply = resp.Entry.Copy()
+					// pass to querier
+					c.Dispatch(q)
+					break
+				}
+				//	pass to connector
+				c.Fail(q)
+			case q := <-c.cachingChannel:
+				c.CacheQuery(q)
+				// no need to do anything else
 			}
-			c.CacheQuery(q)
-			c.Fail(q)
 		}
 	}()
 }
@@ -313,9 +323,10 @@ func (c *cacher) Start() {
 
 func newPipelineServerWorker() pipelineServerWorker {
 	return pipelineServerWorker{
-		inboundQueryChannel:  make(chan Query),
-		outboundQueryChannel: make(chan Query),
-		failedQueryChannel:   make(chan Query),
+		//TODO evaluate whether we want these buffered or unbuffered
+		inboundQueryChannel:  make(chan Query, 100),
+		outboundQueryChannel: make(chan Query, 100),
+		failedQueryChannel:   make(chan Query, 100),
 	}
 }
 
@@ -357,6 +368,7 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 	cachr := &cacher{
 		pipelineServerWorker: cacheWorker,
 		cache:                cache,
+		cachingChannel:       make(chan Query, 100),
 	}
 	defer cachr.Start()
 
