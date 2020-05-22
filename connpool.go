@@ -405,6 +405,7 @@ func (c *connPool) coolAndPurgeUpstream(upstream *Upstream) {
 	if config.CooldownPeriod != 0 {
 		cooldownPeriod = config.CooldownPeriod * time.Millisecond
 	}
+
 	upstream.Cooldown(cooldownPeriod)
 
 	c.purgeUpstream(*upstream)
@@ -423,4 +424,5 @@ func (c *connPool) purgeUpstream(upstream Upstream) {
 		}
 		c.cache[addr] = []*ConnEntry{}
 	}
+	ConnPoolSizeGauge.WithLabelValues(addr).Set(float64(len(c.cache[addr])))
 }
