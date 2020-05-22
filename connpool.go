@@ -420,8 +420,7 @@ func (c *connPool) purgeUpstream(upstream Upstream) {
 			go func(conn *ConnEntry) {
 				c.CloseConnection(conn)
 			}(conn)
-			// https://stackoverflow.com/questions/23229975/is-it-safe-to-remove-selected-keys-from-map-within-a-range-loop
-			delete(c.cache, addr)
 		}
+		c.cache[addr] = []*ConnEntry{}
 	}
 }
