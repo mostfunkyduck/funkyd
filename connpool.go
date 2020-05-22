@@ -224,7 +224,7 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 	// get the actual pointer for this ce's upstream
 	upstream, err := c.getUpstreamByAddress(address)
 	if err != nil {
-		return fmt.Errorf("could not add conn entry with address [%s]: %s", address, err.Error())
+		return fmt.Errorf("could not update upstream with address [%s]: %s", address, err)
 	}
 
 	// we may need to update after a fresh connection errored out
@@ -416,6 +416,8 @@ func (c *connPool) purgeUpstream(upstream Upstream) {
 			go func(conn *ConnEntry) {
 				c.CloseConnection(conn)
 			}(conn)
+			// https://stackoverflow.com/questions/23229975/is-it-safe-to-remove-selected-keys-from-map-within-a-range-loop
+			delete(c.cache, addr)
 		}
 	}
 }
