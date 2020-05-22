@@ -17,12 +17,12 @@ docker:
 unittest: mocks
 	go test -v -bench=.*
 
-performancetest: docker
+performancetest:
 	sudo docker-compose up -d
 	./testdata/run_dnsperf.sh
 	sudo docker-compose down
 
-test: funkyd unittest performancetest
+test: funkyd unittest docker performancetest
 
 funkyd: *.go
 	# putting this here so that it can call the 'revision' alias
