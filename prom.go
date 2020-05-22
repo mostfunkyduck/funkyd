@@ -27,6 +27,8 @@ var (
 		[]string{
 			// the upstream address
 			"address",
+			// if there was cooling, was there an error?
+			"error",
 			// if the upstream is cooling, this will have the time left
 			// in its cooldown period
 			"cooling"},

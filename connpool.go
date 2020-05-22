@@ -233,9 +233,11 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 		c.weightUpstream(upstream, *ce)
 	}
 
+	errorString := "no"
 	if ce.Error() {
 		c.coolUpstream(upstream)
 		c.purgeUpstream(*upstream)
+		errorString = "yes"
 	}
 
 	c.sortUpstreams()
@@ -256,7 +258,7 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 		)
 	}
 
-	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), coolingString).Set(float64(upstream.GetWeight()))
+	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), coolingString, errorString).Set(float64(upstream.GetWeight()))
 	return nil
 }
 
