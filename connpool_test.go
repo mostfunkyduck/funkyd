@@ -22,13 +22,16 @@ func buildPool() ConnPool {
 func TestConnectionPoolSingleEntry(t *testing.T) {
 	pool := buildPool()
 	var upstream Upstream
-	if x, upstream, err := pool.Get(); (upstream == Upstream{}) {
+	x, upstream, err := pool.Get()
+	if (upstream == Upstream{}) {
 		t.Fatalf("could not retrieve upstream to connect to: [%v] [%v] [%s]", x, upstream, err)
 	}
 	pool.AddUpstream(&upstream)
 
 	ce, err := pool.NewConnection(upstream, func(addr string) (*dns.Conn, error) {
-		return &dns.Conn{}, nil
+		server, client := net.Pipe()
+		server.Close()
+		return &dns.Conn{Conn: client}, nil
 	})
 	if err != nil {
 		t.Fatalf("could not make connection to upstream [%v]: %s", upstream, err.Error())
@@ -86,7 +89,9 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 	for _, each := range upstreams {
 		address := each.GetAddress()
 		ce, err := pool.NewConnection(*each, func(addr string) (*dns.Conn, error) {
-			return &dns.Conn{}, nil
+			server, client := net.Pipe()
+			server.Close()
+			return &dns.Conn{Conn: client}, nil
 		})
 		if err != nil {
 			t.Fatalf("could not get new connection on address [%s] upstream [%v]: %s", address, each, err.Error())

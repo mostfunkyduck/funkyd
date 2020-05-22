@@ -91,6 +91,17 @@ func (c *ConnEntry) Error() bool {
 
 // Increment the internal counters tracking successful exchanges and durations
 func (c *ConnEntry) AddExchange(rtt time.Duration) {
+	// TODO evaluate having multiple timeouts for dialing vs rtt'ing
+	RttTimeout := GetConfiguration().Timeout
+	if RttTimeout == 0 {
+		RttTimeout = 500
+	}
+	// check to see if this exchange took too long
+	if rtt > time.Duration(RttTimeout)*time.Millisecond {
+		// next time around, treat this as a bogus connection
+		c.AddError()
+	}
+
 	c.totalRTT += rtt
 	c.exchanges += 1
 }
@@ -100,6 +111,10 @@ func (c *ConnEntry) GetAddress() string {
 }
 
 func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
+	// Division of time values: this will produce the actual number of ms
+	// but if you try to use it in a time.Duration, it'll be viewed as nanoseconds
+	// makes sense since the time.Duration type is just a number thats assumed
+	// to be ns
 	currentRTT := UpstreamWeight(ce.totalRTT / time.Millisecond)
 	if currentRTT == 0.0 || ce.exchanges == 0 {
 		// this connection hasn't seen any actual connection time, no weight
@@ -159,22 +174,41 @@ func (c *connPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 
 // Will select the lowest weighted cached connection
 // falling back to the lowest weighted upstream if none exist
+// upstreams that are cooling will be ignored
 func (c *connPool) getBestUpstream() (upstream Upstream) {
 	// get the first upstream with connections, default to the 0th connection on the list
 	// iterate through in order; this list is sorted based on weight
-	upstream = *c.upstreams[0] // start off with the default
+
+	var bestCandidate Upstream
+
 	// goal: find the highest lowest weighted upstream with connections
 	for _, each := range c.upstreams {
-		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
-			// there were connections here, let's reuse them
-			// but first! is this upstream actually ready to use?
+		if conns, ok := c.cache[each.GetAddress()]; ok {
+			// should this upstream be taking connections?
 			if !each.IsCooling() {
-				return *each
+				// it should. does it HAVE connections?
+				if len(conns) > 0 {
+					return *each
+				}
+
+				// it's open, but it doesn't have existing connections, let's
+				// use it iff there's no existing connections
+				if (bestCandidate == Upstream{}) {
+					bestCandidate = *each
+				}
 			}
 		}
 	}
-	// no cached connections, let's make a new one based on weight
-	return upstream
+
+	// if we got here, there are no cached connections, did we find a candidate?
+	// the candidate will be the lowest weighted connection that wasn't cooling
+	if (bestCandidate != Upstream{}) {
+		return bestCandidate
+	}
+
+	// no cached connections, everything is cooling, let's abuse the lowest
+	// weighted upstream
+	return *c.upstreams[0]
 }
 
 // arranges the upstreams based on weight
@@ -226,23 +260,6 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 	return nil
 }
 
-// iterate through the cache and close connections to slow upstreams
-func (c *connPool) closeSlowUpstreams() {
-	upstream := *c.upstreams[0]
-	for _, each := range c.upstreams {
-		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
-			if upstream.GetWeight()*2 < each.GetWeight() {
-				// this upstream is way too heavy, and all the previous ones had no connections
-				// close all it's connections and let it cool down until we need it
-				for _, conn := range conns {
-					conn.Conn.Close()
-				}
-				c.cache[each.GetAddress()] = []*ConnEntry{}
-			}
-		}
-	}
-}
-
 // adds a connection to the cache
 func (c *connPool) Add(ce *ConnEntry) (err error) {
 	c.Lock()
@@ -268,7 +285,7 @@ func (c *connPool) Add(ce *ConnEntry) (err error) {
 		// the max is greater than zero and there's nothing here, so we can just insert
 		c.cache[address] = []*ConnEntry{ce}
 	}
-	c.closeSlowUpstreams()
+
 	ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
 	return
 }
@@ -301,14 +318,14 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc func(address string
 
 		upstream, upstreamErr := c.getUpstreamByAddress(address)
 		if upstreamErr != nil {
-			err = fmt.Errorf("could not retrieve upstream for %s: %s: %s", address, upstreamErr.Error(), err.Error())
+			err = fmt.Errorf("could not retrieve upstream for %s: %s: %s", address, upstreamErr, err)
 			return &ConnEntry{}, err
 		}
 
 		c.coolUpstream(upstream)
 
 		FailedConnectionsCounter.WithLabelValues(address).Inc()
-		return &ConnEntry{}, fmt.Errorf("cooling upstream, could not connect to [%s]: %s", address, err.Error())
+		return &ConnEntry{}, fmt.Errorf("cooling upstream, could not connect to [%s]: %s", address, err)
 	}
 
 	Logger.Log(NewLogMessage(
