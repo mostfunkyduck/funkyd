@@ -83,10 +83,10 @@ var (
 		Name: "funkyd_nxdomains_total",
 		Help: "total nxdomains",
 	})
-	QueryTimer = promauto.NewSummary(prometheus.SummaryOpts{
+	QueryTimer = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:       "funkyd_query_time",
 		Help:       "query timer",
-		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		Buckets:		prometheus.LinearBuckets(0, .05, 60),
 	})
 	ExchangeTimer = promauto.NewSummaryVec(prometheus.SummaryOpts{
 		Name:       "funkyd_upstream_exchange_time",
