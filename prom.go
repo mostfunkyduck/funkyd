@@ -83,22 +83,22 @@ var (
 		Name: "funkyd_nxdomains_total",
 		Help: "total nxdomains",
 	})
-	QueryTimer = promauto.NewHistogram(prometheus.HistogramOpts{
+	QueryTimer = promauto.NewSummary(prometheus.SummaryOpts{
 		Name:       "funkyd_query_time",
 		Help:       "query timer",
-		Buckets:		prometheus.LinearBuckets(0, .1, 10),
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	})
-	ExchangeTimer = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	ExchangeTimer = promauto.NewSummaryVec(prometheus.SummaryOpts{
 		Name:       "funkyd_upstream_exchange_time",
 		Help:       "how long the upstreams took to respond",
-		Buckets:		prometheus.LinearBuckets(0, .1, 10),
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	},
 		[]string{"destination"},
 	)
-	TLSTimer = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	TLSTimer = promauto.NewSummaryVec(prometheus.SummaryOpts{
 		Name:       "funkyd_tls_connection_time",
 		Help:       "times the pure connection time of tls",
-		Buckets:		prometheus.LinearBuckets(0, .1, 10),
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	},
 		[]string{"destination"},
 	)
