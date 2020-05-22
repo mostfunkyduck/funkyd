@@ -15,7 +15,7 @@ Currently, the project does not do its own installation.  It requires the follow
 1. A JSON config file in /etc/funkyd.conf.  The syntax isn't documented yet, but can be seen in `config.go`
 1. If log files are defined, they must exist
 
-Eventually a container will exist that will make this easier
+Eventually a container will exist that will make this easier.
 
 ## Testing
 The `Dockerfile` and `docker-compose.yml` in this repository are for running benchmark tests on funkyd.  Using assets in the repo, the compose file will start up a test server that points to a blackhole server that discards all inbound queries. There is then `Dockerfile.dnsperf`, which builds a local container with dnsperf installed that can be run to automatically launch tests on both the blackhole and the testbox.
