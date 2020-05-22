@@ -312,6 +312,11 @@ func (s *MutexServer) GetConnectionPool() (pool ConnPool) {
 	return s.connPool
 }
 
+// never use this outside of tests, please
+func (s *MutexServer) SetConnectionPool(c ConnPool) {
+	s.connPool = c
+}
+
 func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 	// seed the random generator once for upstream shuffling
 

@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"github.com/miekg/dns"
+	"net"
 	"time"
 )
 
@@ -13,7 +14,9 @@ func UpstreamTestingDialer(upstream Upstream) func(addr string) (conn *dns.Conn,
 		if addr != expectedAddress {
 			err = fmt.Errorf("got unexpected address [%s] when dialing upstream [%v], expecting address [%s] to be dialed", addr, upstream, expectedAddress)
 		}
-		return &dns.Conn{}, err
+		server, client := net.Pipe()
+		server.Close()
+		return &dns.Conn{Conn: client}, err
 	}
 }
 

@@ -66,6 +66,7 @@ func BenchmarkServeDNSParallel(b *testing.B) {
 	}
 	testMsg := new(dns.Msg)
 	testMsg.SetQuestion("example.com", dns.TypeA)
+	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			server.HandleDNS(&TestResponseWriter{}, testMsg)

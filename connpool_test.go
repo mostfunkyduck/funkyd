@@ -217,12 +217,7 @@ func TestConnectionPoolAddSlowConnection(t *testing.T) {
 /** BENCHMARKS **/
 
 func BenchmarkConnectionParallel(b *testing.B) {
-	server, _, err := BuildStubServer()
-	if err != nil {
-		b.Fatalf("could not initialize server [%s]", err)
-	}
-
-	pool := server.GetConnectionPool()
+	pool := NewConnPool()
 	b.RunParallel(func(pb *testing.PB) {
 		i := 1
 		for pb.Next() {
@@ -230,7 +225,12 @@ func BenchmarkConnectionParallel(b *testing.B) {
 				Port: i,
 				Name: "example.com",
 			}
-			pool.NewConnection(upstream, UpstreamTestingDialer(upstream))
+			ce, err := pool.NewConnection(upstream, UpstreamTestingDialer(upstream))
+			if err != nil {
+				b.Fatalf("could not create new connection for upstream %d: %s", i, err)
+			} else {
+				pool.CloseConnection(ce)
+			}
 			i++
 		}
 	})

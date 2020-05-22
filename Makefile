@@ -22,7 +22,7 @@ performancetest:
 	./testdata/run_dnsperf.sh
 	sudo docker-compose down
 
-test: funkyd unittest docker performancetest
+test: unittest docker performancetest
 
 funkyd: *.go
 	# putting this here so that it can call the 'revision' alias

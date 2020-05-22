@@ -473,11 +473,11 @@ func (t *trashMan) Start(r *RecordCache) {
 	}()
 }
 
-func (j janitor) Stop() {
+func (j *janitor) Stop() {
 	j.Cancel <- true
 }
 
-func (j janitor) Start(r *RecordCache) {
+func (j *janitor) Start(r *RecordCache) {
 	config := GetConfiguration()
 	j.Cancel = make(chan bool)
 	go func() {
