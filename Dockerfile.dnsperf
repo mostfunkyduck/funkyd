@@ -1,5 +1,4 @@
-FROM ubuntu:latest as base
-
+FROM ubuntu:bionic as base
 WORKDIR /app
 RUN apt update && \
     apt install -y git libbind-dev libkrb5-dev libssl-dev libcap-dev libxml2-dev libjson-c-dev libgeoip-dev autoconf automake libtool curl && \
