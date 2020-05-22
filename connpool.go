@@ -258,7 +258,7 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 		)
 	}
 
-	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), coolingString, errorString).Set(float64(upstream.GetWeight()))
+	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), errorString, coolingString).Set(float64(upstream.GetWeight()))
 	return nil
 }
 
