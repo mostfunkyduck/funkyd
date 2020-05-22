@@ -234,10 +234,13 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 	}
 
 	errorString := "no"
+	if upstream.IsCooling() {
+		errorString = "cooling"
+	}
+
 	if ce.Error() {
-		c.coolUpstream(upstream)
-		c.purgeUpstream(*upstream)
-		errorString = "yes"
+		c.coolAndPurgeUpstream(upstream)
+		errorString += ", connection"
 	}
 
 	c.sortUpstreams()
@@ -324,7 +327,7 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc func(address string
 			return &ConnEntry{}, err
 		}
 
-		c.coolUpstream(upstream)
+		c.coolAndPurgeUpstream(upstream)
 
 		FailedConnectionsCounter.WithLabelValues(address).Inc()
 		return &ConnEntry{}, fmt.Errorf("cooling upstream, could not connect to [%s]: %s", address, err)
@@ -394,16 +397,17 @@ func (c *connPool) CloseConnection(ce *ConnEntry) {
 }
 
 // take an upstream pointer (so that we can update the actual record)
-// and tell it to cool down
+// and tell it to cool down, sever all connections
 // non re-entrant, needs outside locking
-func (c *connPool) coolUpstream(upstream *Upstream) (err error) {
+func (c *connPool) coolAndPurgeUpstream(upstream *Upstream) {
 	config := GetConfiguration()
 	cooldownPeriod := time.Duration(500) * time.Millisecond
 	if config.CooldownPeriod != 0 {
 		cooldownPeriod = config.CooldownPeriod * time.Millisecond
 	}
 	upstream.Cooldown(cooldownPeriod)
-	return nil
+
+	c.purgeUpstream(*upstream)
 }
 
 // closes all connections that belong to a given upstream
