@@ -245,14 +245,14 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 		// Wake Up Time: wut :)
 		wut := upstream.WakeupTime()
 		coolingString = fmt.Sprintf(
-			"%d-%d-%d %d:%d:%d:%d",
+			"%d-%d-%d %d:%d:%d:%s",
 			wut.Year(),
 			wut.Month(),
 			wut.Day(),
 			wut.Hour(),
 			wut.Minute(),
 			wut.Second(),
-			time.Duration(wut.Nanosecond())/time.Millisecond,
+			time.Now().Sub(wut),
 		)
 	}
 
