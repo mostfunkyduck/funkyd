@@ -5,7 +5,7 @@ BRANCH=`git branch 2>/dev/null | grep '\*' | sed "s/* //"`
 
 .PHONY: mocks all unittest performancetest test docker clean
 
-all: test funkyd
+all: funkyd test
 
 clean:
 	go clean
@@ -22,7 +22,7 @@ performancetest: docker
 	./testdata/run_dnsperf.sh
 	sudo docker-compose down
 
-test: unittest performancetest
+test: funkyd unittest performancetest
 
 funkyd: *.go
 	# putting this here so that it can call the 'revision' alias
