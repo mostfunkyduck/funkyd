@@ -253,3 +253,26 @@ func TestQuerierStart(t *testing.T) {
 	q.inboundQueryChannel <- qu
 	<-q.failedQueryChannel
 }
+
+func TestFinisherStart (t *testing.T) {
+	pw := NewPipelineServerWorker()
+	// make this unbuffered so that completion of the test
+  // shows that the worker took from the q
+	p := PipelineFinisher{
+		pipelineServerWorker: pw,
+	}
+	pw.inboundQueryChannel = make(chan Query)
+	p.Start()
+	defer func () { p.cancelChannel <- true }()
+	writer := &MockResponseWriter{}
+	qdt := &MockQueryDurationTimer{}
+	writer.On("WriteMsg", mock.Anything).Return(nil)
+	qdt.On("ObserveDuration").Return(time.Duration(100))
+	q := Query{
+		W: writer,
+		Reply: &dns.Msg{},
+		Timer: qdt,
+	}
+
+	p.inboundQueryChannel <- q
+}

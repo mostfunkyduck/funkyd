@@ -19,6 +19,11 @@ type PipelineServerWorker interface {
 	Fail(q Query)
 }
 
+// interface for the timer in the query struct, mainly to avoid
+// tightly coupling to prometheus
+type QueryDurationTimer interface {
+	ObserveDuration()	time.Duration
+}
 // Basic implementation for a pipeline worker
 type pipelineServerWorker struct {
 	PipelineServerWorker
@@ -103,7 +108,7 @@ type Query struct {
 	ConnectionRetries int
 
 	// the prometheus timer to use for this query
-	Timer *prometheus.Timer
+	Timer QueryDurationTimer
 
 	// the reply received for this query
 	Reply *dns.Msg
@@ -319,7 +324,15 @@ func (p *PipelineFinisher) Start() {
 			case _ = <-p.cancelChannel:
 				return
 			case q := <-p.inboundQueryChannel:
-				q.W.WriteMsg(q.Reply)
+				if err := q.W.WriteMsg(q.Reply); err != nil {
+					Logger.Log(LogMessage{
+						Level: CRITICAL,
+						Context: LogContext {
+							"what": "failed to write reply to client",
+							"error": err.Error(),
+						},
+					})
+				}
 				duration := q.Timer.ObserveDuration()
 				logQuery(q.Upstream.GetAddress(), duration, q.Reply)
 			}
