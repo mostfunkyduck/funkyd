@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-/** Worker Interfaces **/
-
 // Basic functions for a pipeline worker
 type PipelineServerWorker interface {
 	// starts the worker gr(s)
@@ -176,8 +174,10 @@ func (c *connector) AssignConnection(q Query) (assignedQuery Query, err error) {
 					},
 				})
 				finalError = fmt.Errorf("failed to connect to [%s]: %s: %s", upstream.GetAddress(), err, finalError)
+
 				continue
 			}
+
 			break
 		}
 		if err != nil {
