@@ -22,8 +22,9 @@ type PipelineServerWorker interface {
 // interface for the timer in the query struct, mainly to avoid
 // tightly coupling to prometheus
 type QueryDurationTimer interface {
-	ObserveDuration()	time.Duration
+	ObserveDuration() time.Duration
 }
+
 // Basic implementation for a pipeline worker
 type pipelineServerWorker struct {
 	PipelineServerWorker
@@ -91,6 +92,10 @@ type PipelineQuerier struct {
 
 type PipelineFinisher struct {
 	pipelineServerWorker
+
+	// dedicated channel for servfails, this makes
+	// the code more readable than just overriding one of the other channels
+	servfailsChannel chan Query
 }
 
 // Context variable for queries, passed through pipeline to all workers
@@ -323,13 +328,30 @@ func (p *PipelineFinisher) Start() {
 			select {
 			case _ = <-p.cancelChannel:
 				return
+			case q := <-p.servfailsChannel:
+				failingQuery := q
+				failingQuery.Reply = &dns.Msg{}
+				failingQuery.Reply.SetRcode(failingQuery.Msg, dns.RcodeServerFailure)
+				if err := q.W.WriteMsg(q.Reply); err != nil {
+					Logger.Log(LogMessage{
+						Level: CRITICAL,
+						Context: LogContext{
+							"what":  "failed to write servfail reply to client",
+							"error": err.Error(),
+							"reply": q.Reply.String(),
+						},
+					})
+				}
+				duration := q.Timer.ObserveDuration()
+				logQuery("servfail", duration, failingQuery.Reply)
 			case q := <-p.inboundQueryChannel:
 				if err := q.W.WriteMsg(q.Reply); err != nil {
 					Logger.Log(LogMessage{
 						Level: CRITICAL,
-						Context: LogContext {
-							"what": "failed to write reply to client",
+						Context: LogContext{
+							"what":  "failed to write reply to client",
 							"error": err.Error(),
+							"reply": q.Reply.String(),
 						},
 					})
 				}
