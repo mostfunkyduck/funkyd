@@ -218,7 +218,7 @@ func TestQuerierStart(t *testing.T) {
 		},
 	}
 	mockClient.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(1), nil).Once()
-	mockClient.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(1), fmt.Errorf("blah blah blah"))
+	mockClient.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(1), fmt.Errorf("blah blah blah")).Once()
 
 	q := PipelineQuerier{
 		pipelineServerWorker: pw,
