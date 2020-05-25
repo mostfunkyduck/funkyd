@@ -12,8 +12,10 @@ clean:
 
 cscope:
 	# this will add a local index called 'cscope.out' based on a collection of source files in 'cscope.files'
+	# adding all go src files
+	find ~/go/src -name "*.go" -print >> ./cscope.files
 	# adding local source code
-	find . -name "*.go" -print > cscope.files
+	find . -name "*.go" -print >> cscope.files
 	# running cscope, the -b and -k flags will keep things narrowly scoped
 	cscope -b -k
 

@@ -80,8 +80,8 @@ func InitApi() {
 	router.HandleFunc("/v1/config", configHttpHandler)
 	router.HandleFunc("/v1/shutdown", shutdownHttpHandler)
 	router.HandleFunc("/v1/version", versionHttpHandler)
-	log.Printf("starting HTTP server on ':%d'\n", conf.HTTPPort)
-	HttpServer := &http.Server{Handler: router, Addr: fmt.Sprintf(":%d", conf.HTTPPort)}
+	log.Printf("starting HTTP server on ':%d'\n", conf.HttpPort)
+	HttpServer := &http.Server{Handler: router, Addr: fmt.Sprintf(":%d", conf.HttpPort)}
 	// don't block the main thread with this jazz
 	go func() {
 		log.Printf(fmt.Sprintf("%s", HttpServer.ListenAndServe()))

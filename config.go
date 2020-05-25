@@ -26,7 +26,7 @@ type tlsConfig struct {
 	CertificateFile string `json:"certificate_file"`
 }
 
-type config struct {
+type Configuration struct {
 	// Whether or not to use TCP Fast Open (hint: this is an experimental protocol
 	// that slows the hell out of things when the upstream doesn't support it,
 	// the first packet is sent with a payload and if the server doesn't support that,
@@ -54,10 +54,10 @@ type config struct {
 	Blackhole bool `json:"blackhole"`
 
 	// Port to listen for DNS traffic on
-	DNSPort int `json:"dns_port"`
+	DnsPort int `json:"dns_port"`
 
 	// Port to expose admin API on
-	HTTPPort int `json:"http_port"`
+	HttpPort int `json:"http_port"`
 
 	// Force a maximum number of concurrent queries, 0 value will set this to GOMAXPROCS
 	ConcurrentQueries int `json:"concurrent_queries"`
@@ -72,7 +72,7 @@ type config struct {
 	ListenProtocol string `json:"listen_protocol"`
 
 	// Optional TLS config for using TLS inbound
-	TLSConfig tlsConfig `json:"tls"`
+	TlsConfig tlsConfig `json:"tls"`
 
 	// skips cert verification, only use in testing pls
 	SkipUpstreamVerification bool `json:"skip_upstream_verification"`
@@ -83,16 +83,16 @@ type config struct {
 
 // this is a pointer so that tests can set variables easily
 // it is initialized here for the same reason
-var configuration config = config{}
+var configuration Configuration = Configuration{}
 
-// InitConfiguration parses the config file
 func InitConfiguration(configpath string) error {
 	file, _ := os.Open(configpath)
 	defer file.Close()
 	decoder := json.NewDecoder(file)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&configuration); err != nil {
-		return fmt.Errorf("error while loading configuration from JSON: %s", err)
+	err := decoder.Decode(&configuration)
+	if err != nil {
+		return fmt.Errorf("error while loading configuration from JSON: %s\n", err)
 	}
 
 	configJSON, err := json.MarshalIndent(configuration, "", "    ")
@@ -103,7 +103,6 @@ func InitConfiguration(configpath string) error {
 	return nil
 }
 
-// GetConfiguration returns the configuration struct
-func GetConfiguration() *config {
+func GetConfiguration() *Configuration {
 	return &configuration
 }

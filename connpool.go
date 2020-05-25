@@ -1,5 +1,7 @@
 package main
 
+// Pools connections to upstream servers, does high level lifecycle management and
+// prioritizes which upstreams get connections and which don't
 import (
 	"fmt"
 	"github.com/miekg/dns"
@@ -9,11 +11,8 @@ import (
 	"time"
 )
 
-// DialFunc function for dialing new connections
 type DialFunc func(address string) (*dns.Conn, error)
 
-// ConnPool pools connections to upstream servers, does high level lifecycle management and
-// prioritizes which upstreams get connections and which don't
 type ConnPool interface {
 	// Retrieves a new connection from the pool
 	// returns an upstream and a nil connentry if a new
@@ -46,17 +45,16 @@ type connPool struct {
 	upstreamNames []UpstreamName
 
 	cache map[string][]*ConnEntry
-	lock  sync.RWMutex
+	lock  Lock
 }
 
-type cachedConn interface {
+type CachedConn interface {
 	Close() error
 }
 
-// ConnEntry An entry in the connection pool
 type ConnEntry struct {
 	// The actual connection
-	Conn cachedConn
+	Conn CachedConn
 
 	// The upstream that this connection is associated with
 	upstream Upstream
@@ -68,42 +66,44 @@ type ConnEntry struct {
 	exchanges int
 }
 
-// AddExchange mark an exchange of length rtt
-func (c *ConnEntry) AddExchange(rtt time.Duration) {
-	c.totalRTT += rtt
-	c.exchanges++
+type Lock struct {
+	sync.RWMutex
+	locklevel int
 }
 
-// GetAddress returns the address this connentry is holding a connection to
+// Increment the internal counters tracking successful exchanges and durations
+func (c *ConnEntry) AddExchange(rtt time.Duration) {
+	c.totalRTT += rtt
+	c.exchanges += 1
+}
+
 func (c *ConnEntry) GetAddress() string {
 	return c.upstream.GetAddress()
 }
 
-// GetWeight returns the weight of this connentry (deliberately not documenting that in too much detail until it's actually thought out)
-func (c *ConnEntry) GetWeight() (weight UpstreamWeight) {
-	currentRTT := UpstreamWeight(c.totalRTT / time.Millisecond)
-	if currentRTT == 0.0 || c.exchanges == 0 {
+func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
+	currentRTT := UpstreamWeight(ce.totalRTT / time.Millisecond)
+	if currentRTT == 0.0 || ce.exchanges == 0 {
 		// this connection hasn't seen any actual connection time, no weight
 		weight = 0
 	} else {
-		weight = currentRTT / UpstreamWeight(c.exchanges)
+		weight = currentRTT / UpstreamWeight(ce.exchanges)
 	}
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
 			"what":               "setting weight on connection",
-			"connection_address": c.GetAddress(),
+			"connection_address": ce.GetAddress(),
 			"currentRTT":         fmt.Sprintf("%f", currentRTT),
-			"exchanges":          fmt.Sprintf("%f", UpstreamWeight(c.exchanges)),
+			"exchanges":          fmt.Sprintf("%f", UpstreamWeight(ce.exchanges)),
 			"new_weight":         fmt.Sprintf("%f", weight),
 		},
-		func() string { return fmt.Sprintf("upstream [%v] connection [%v]", c.upstream, c) },
+		func() string { return fmt.Sprintf("upstream [%v] connection [%v]", ce.upstream, ce) },
 	))
 	return
 }
 
-// NewConnPool initializes an emptry connpool
-func NewConnPool() ConnPool {
+func NewConnPool() *connPool {
 	return &connPool{
 		cache: make(map[string][]*ConnEntry),
 	}

@@ -43,7 +43,7 @@ func TestStorage(t *testing.T) {
 		t.Fatalf("couldn't set up cache: %s", err.Error())
 	}
 	response := setupResponse(1)
-	response.TTL = 1099 * time.Second
+	response.Ttl = 1099 * time.Second
 	response.CreationTime = time.Now()
 	cache.Add(response)
 	cachedResponse, ok := cache.Get(response.Name, response.Qtype)
@@ -80,7 +80,7 @@ func TestClean(t *testing.T) {
 	f := func(domain string) Response {
 		r := setupResponse(i)
 		i++
-		r.TTL = 10 * time.Second
+		r.Ttl = 10 * time.Second
 		r.CreationTime = time.Now().Add(-15 * time.Second)
 		rr, err := dns.NewRR(fmt.Sprintf("%s\t10\tIN\tA\t10.0.0.0", domain))
 		if err != nil {

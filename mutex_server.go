@@ -11,7 +11,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/semaphore"
 	"runtime"
-	"sync"
 )
 
 type MutexServer struct {
@@ -20,7 +19,7 @@ type MutexServer struct {
 	// worker pool semaphore
 	sem *semaphore.Weighted
 
-	RWLock sync.RWMutex
+	RWLock Lock
 
 	// connection pool
 	connPool ConnPool
@@ -306,7 +305,7 @@ func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 		BaseServer: base,
 		connPool:   pool,
 		sem:        sem,
-		RWLock:     sync.RWMutex{},
+		RWLock:     Lock{},
 	}
 	upstreamNames := config.Upstreams
 	for _, name := range upstreamNames {
