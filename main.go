@@ -45,20 +45,20 @@ func runBlackholeServer() error {
 	config := GetConfiguration()
 	switch config.ListenProtocol {
 	case "tcp-tls":
-		srv := &dns.Server{Addr: ":" + strconv.Itoa(config.DnsPort), Net: "tcp-tls", MaxTCPQueries: -1, ReusePort: true}
+		srv := &dns.Server{Addr: ":" + strconv.Itoa(config.DNSPort), Net: "tcp-tls", MaxTCPQueries: -1, ReusePort: true}
 		log.Printf("starting tls blackhole server")
-		if (config.TlsConfig == tlsConfig{}) {
+		if (config.TLSConfig == tlsConfig{}) {
 			log.Fatalf("attempted to listen for TLS connections, but no tls config was defined")
 		}
-		if config.TlsConfig.CertificateFile == "" {
+		if config.TLSConfig.CertificateFile == "" {
 			log.Fatalf("invalid certificate file in configuration")
 		}
 
-		if config.TlsConfig.PrivateKeyFile == "" {
+		if config.TLSConfig.PrivateKeyFile == "" {
 			log.Fatalf("invalid private key in configuration")
 		}
 
-		cert, err := tls.LoadX509KeyPair(config.TlsConfig.CertificateFile, config.TlsConfig.PrivateKeyFile)
+		cert, err := tls.LoadX509KeyPair(config.TLSConfig.CertificateFile, config.TLSConfig.PrivateKeyFile)
 		if err != nil {
 			log.Fatalf("could not load tls files")
 		}
@@ -146,7 +146,7 @@ func main() {
 
 	loadLocalZones(server)
 
-	dnsPort := config.DnsPort
+	dnsPort := config.DNSPort
 	if dnsPort == 0 {
 		dnsPort = 53
 	}

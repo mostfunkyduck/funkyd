@@ -1,5 +1,6 @@
 package main
 
+// BaseServer - Base server object
 type BaseServer struct {
 	// lookup cache
 	Cache Cache

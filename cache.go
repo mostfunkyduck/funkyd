@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	"time"
+	"sync"
 )
 
+// Cache models a basic cache
 type Cache interface {
 	// Add to the cache
 	Add(response Response)
@@ -48,7 +50,7 @@ type Cache interface {
 	Evict(resp Response)
 }
 
-// Cleans the cache periodically, evicting all bad responses for the trashman
+// Janitor cleans a cache periodically, evicting all bad responses for the trashman
 type Janitor interface {
 	// Starts the janitor
 	Start(r *RecordCache)
@@ -61,7 +63,7 @@ type janitor struct {
 	Cancel chan bool
 }
 
-// The trashman is in charge of actually removing responses
+// TrashMan - The trashman is in charge of actually removing responses
 // from a given cache.  As removal requires a lock, the trashman
 // interface provides functions for queueing and flushing responses
 // to avoid thrashing
@@ -118,7 +120,7 @@ type trashMan struct {
 	paused bool
 }
 
-// Core cache struct, manages the actual cache and the cleaning crew
+// RecordCache - Core cache struct, manages the actual cache and the cleaning crew
 type RecordCache struct {
 	// See janitor struct
 	Janitor Janitor
@@ -130,10 +132,10 @@ type RecordCache struct {
 	cache map[string]Response
 
 	// the cache lock
-	lock Lock
+	lock sync.RWMutex
 }
 
-// DNS response cache wrapper
+// Response DNS response cache wrapper
 type Response struct {
 	// The domain this response is for
 	Name string
@@ -142,7 +144,7 @@ type Response struct {
 	Entry dns.Msg
 
 	// TTL
-	Ttl time.Duration
+	TTL time.Duration
 
 	// Query type
 	Qtype uint16
@@ -151,20 +153,21 @@ type Response struct {
 	CreationTime time.Time
 }
 
-// constructs a cache key from a response
-func (r Response) FormatKey() string {
+// FormatKey - constructs a cache key
+func (r *Response) FormatKey() string {
 	return fmt.Sprintf("%s:%d", r.Name, r.Qtype)
 }
 
-func (response Response) IsExpired(rr dns.RR) bool {
-	expired := response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
+// IsExpired - tests whether a response is expired
+func (r *Response) IsExpired(rr dns.RR) bool {
+	expired := r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
 			"what":         "checking if record has expired",
 			"ttl":          fmt.Sprintf("%d", rr.Header().Ttl),
-			"record_key":   response.FormatKey(),
-			"creationtime": fmt.Sprintf("%s", response.CreationTime),
+			"record_key":   r.FormatKey(),
+			"creationtime": fmt.Sprintf("%s", r.CreationTime),
 			"expired":      fmt.Sprintf("%t", expired),
 		},
 		nil,
@@ -172,12 +175,9 @@ func (response Response) IsExpired(rr dns.RR) bool {
 	return expired
 }
 
-func (r Response) GetExpirationTimeFromRR(rr dns.RR) time.Time {
-	return r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second)
-}
 
 // Updates the TTL on the cached record so that the client gets the accurate number
-func (r Response) updateTtl(rr dns.RR) {
+func (r *Response) updateTTL(rr dns.RR) {
 	if r.IsExpired(rr) {
 		Logger.Log(NewLogMessage(
 			DEBUG,
@@ -188,24 +188,26 @@ func (r Response) updateTtl(rr dns.RR) {
 		))
 		return
 	}
-	expirationTime := r.GetExpirationTimeFromRR(rr)
+	expirationTime := r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second)
 	ttl := expirationTime.Sub(time.Now()).Seconds()
-	castTtl := uint32(ttl)
+	castTTL := uint32(ttl)
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
 			"what": "updating cached TTL",
-			"ttl":  string(castTtl),
+			"ttl":  string(castTTL),
 		},
-		func() string { return fmt.Sprintf("rr [%v] ttl [%f] casted ttl [%d]", rr, ttl, castTtl) },
+		func() string { return fmt.Sprintf("rr [%v] ttl [%f] casted ttl [%d]", rr, ttl, castTTL) },
 	))
 	rr.Header().Ttl = uint32(ttl)
 }
 
+// Size returns the size of the cache
 func (r *RecordCache) Size() int {
 	return len(r.cache)
 }
 
+// Add adds a response to the cache
 // can we make it so that this copies the pointers in the response to prevent conflicts
 func (r *RecordCache) Add(response Response) {
 	r.Lock()
@@ -214,6 +216,7 @@ func (r *RecordCache) Add(response Response) {
 	CacheSizeGauge.Set(float64(len(r.cache)))
 }
 
+// Get returns a response from the cache given a name and query type
 func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 	// this class will clean the cache as of now, so it needs a write lock
 	r.RLock()
@@ -262,7 +265,7 @@ func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 			func() string { return fmt.Sprintf("rec [%v] resp [%v]", rec, response) },
 		))
 		// make sure the TTL is up to date
-		response.updateTtl(rec)
+		response.updateTTL(rec)
 		if response.IsExpired(rec) {
 			// There is at least one record in this response that's expired
 			// https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should
@@ -287,6 +290,7 @@ func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 	return response, true
 }
 
+// Remove removes a response from the cache
 func (r *RecordCache) Remove(response Response) {
 	r.Lock()
 	defer r.Unlock()
@@ -308,6 +312,8 @@ func (r *RecordCache) remove(response Response) {
 	CacheSizeGauge.Set(float64(len(r.cache)))
 }
 
+// RemoveSlice removes a slice of responses from the cache
+// useful for doing bulk deletion while only locking the cache once
 func (r *RecordCache) RemoveSlice(responses []Response) {
 	r.Lock()
 	defer r.Unlock()
@@ -315,26 +321,32 @@ func (r *RecordCache) RemoveSlice(responses []Response) {
 		r.remove(resp)
 	}
 }
+
+// RLock read-lock the cache
 func (r *RecordCache) RLock() {
 	r.lock.RLock()
 }
 
+// RUnlock read-unlock the cache
 func (r *RecordCache) RUnlock() {
 	r.lock.RUnlock()
 }
 
-// can't log before lock, the log function iterates through the map
-// which is a nice, delicious race condition with writes
+// Lock locks the cache
 func (r *RecordCache) Lock() {
+	// can't log before lock, the log function iterates through the map
+	// which is a nice, delicious race condition with writes
 	r.lock.Lock()
 }
 
+// Unlock unlocks the cache
 func (r *RecordCache) Unlock() {
 	r.lock.Unlock()
 }
 
+// Clean iterates through the cache and evicts expired responses
 func (r *RecordCache) Clean() int {
-	var records_deleted = 0
+	var recordsDeleted = 0
 	r.Lock()
 	defer r.Unlock()
 
@@ -373,15 +385,15 @@ func (r *RecordCache) Clean() int {
 					nil,
 				))
 				r.Evict(response)
-				records_deleted++
+				recordsDeleted++
 				break
 			}
 		}
 	}
-	return records_deleted
+	return recordsDeleted
 }
 
-// tell the trashman to dispose of this response
+// Evict asynchronously removes a response from the cache
 func (r *RecordCache) Evict(resp Response) {
 	// need to async or there will be deadlock when a caller is holding
 	// r's lock and this function has to essentially trigger a 'Remove'
@@ -391,6 +403,7 @@ func (r *RecordCache) Evict(resp Response) {
 	}()
 }
 
+// NewCache initializes the caches
 func NewCache() (Cache, error) {
 	ret := &RecordCache{
 		cache: make(map[string]Response),
@@ -398,6 +411,7 @@ func NewCache() (Cache, error) {
 	return ret, nil
 }
 
+// StartCleaningCrew initializes a Janitor and Trashman to keep the cache clean
 func (r *RecordCache) StartCleaningCrew() {
 	if r.Janitor == nil {
 		r.Janitor = &janitor{}
@@ -414,6 +428,7 @@ func (r *RecordCache) StartCleaningCrew() {
 	r.TrashMan.Start(r)
 }
 
+// StopCleaningCrew deactivates the cleaning crew
 // Mainly allowing this so that tests can clean up their grs
 func (r *RecordCache) StopCleaningCrew() {
 	r.TrashMan.Stop()
