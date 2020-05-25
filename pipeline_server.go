@@ -41,7 +41,7 @@ type pipelineServerWorker struct {
 
 // Handles initial connection acceptance
 // Dispatch: forwards to PipelineCacher
-// Fail: forwards to PipelineFailer for servfailing
+// Fail: forwards to PipelineFinisher for servfailing
 type QueryHandler interface {
 	PipelineServerWorker
 	ServeDNS(w dns.ResponseWriter, r *dns.Msg)
@@ -62,7 +62,7 @@ type Cacher interface {
 
 // Pairs outbound queries with connections
 // Dispatch: connection is successful, forward to PipelineQuerier
-// Fail: connection failure, forward to PipelineFailer for servfail
+// Fail: connection failure, forward to PipelineFinisher for servfail
 type Connector interface {
 	PipelineServerWorker
 
@@ -122,7 +122,7 @@ type PipelineQuerier struct {
 	client Client
 }
 
-type PipelineFailer struct {
+type PipelineFinisher struct {
 	pipelineServerWorker
 }
 
@@ -145,6 +145,9 @@ type Query struct {
 
 	// the reply received for this query
 	Reply *dns.Msg
+
+	// the response writer to reply on
+	W	*dns.ResponseWriter
 }
 
 /** base worker functions **/
@@ -174,7 +177,7 @@ func (c connector) Start() {
 						"next":  "dispatching to be SERVFAILed",
 					},
 				})
-				// fail to PipelineFailer
+				// fail to PipelineFinisher
 				c.Fail(assignedQuery)
 			}
 			// FIXME there seems to be a case where the PipelineQuerier will be blocked
@@ -271,24 +274,29 @@ func (q *PipelineQuerier) Query(qu Query) (query Query, err error) {
 func (q *PipelineQuerier) Start() {
 
 	go func() {
-		for query := range q.inboundQueryChannel {
-			query, err := q.Query(query)
-			if err != nil {
-				Logger.Log(LogMessage{
-					Level: ERROR,
-					Context: LogContext{
-						"what":  "error retrieving record for domain",
-						"query": query.Msg.String(),
-						"error": err.Error(),
-						"next":  "failing query",
-					},
-				})
-				// fail to PipelineFailer
-				q.Fail(query)
-				continue
+		for {
+			select {
+				case _ = <-q.cancelChannel:
+					return
+				case query := <-q.inboundQueryChannel:
+					query, err := q.Query(query)
+					if err != nil {
+						Logger.Log(LogMessage{
+							Level: ERROR,
+							Context: LogContext{
+								"what":  "error retrieving record for domain",
+								"query": query.Msg.String(),
+								"error": err.Error(),
+								"next":  "failing query",
+							},
+						})
+						// fail to PipelineFinisher
+						q.Fail(query)
+						continue
+					}
+					// dispatch to replier
+					q.Dispatch(query)
 			}
-			// dispatch to replier
-			q.Dispatch(query)
 		}
 	}()
 }
@@ -340,6 +348,20 @@ func (c *PipelineCacher) Start() {
 	}()
 }
 
+func (p *PipelineFinisher) Start() {
+	go func() {
+		for {
+			select {
+				case _ = <-p.cancelChannel:
+					return
+				case q := <-p.inboundQueryChannel:
+					q.W.WriteMsg(m)
+					logQuery("servfail", duration, m)
+					sendServfail(q.W, q.Timer.ObserveDuration(), q.Reply)
+			}
+		}
+	}()
+}
 /** generic functions **/
 
 func logCancellation(name string) {
@@ -376,16 +398,13 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 		pipelineServerWorker: NewPipelineServerWorker(),
 	}
 
-	// query handlers pas to cachers which pass to connectors which pass to
-	// queriers which pass to repliers, failers are there to quickly dispatch servfails when the need arises
-
-	// INIT PipelineFailer
-	failerWorker := NewPipelineServerWorker()
-	PipelineFailer := &PipelineFailer{
-		pipelineServerWorker: failerWorker,
+	// INIT PipelineFinisher
+	finisherWorker := NewPipelineServerWorker()
+	PipelineFinisher := &PipelineFinisher{
+		pipelineServerWorker: finisherWorker,
 	}
-	ret.failedQueryChannel = failerWorker.inboundQueryChannel
-	defer PipelineFailer.Start()
+	ret.failedQueryChannel = finisherWorker.inboundQueryChannel
+	defer PipelineFinisher.Start()
 
 	// INIT PipelineCacher
 	cacheWorker := NewPipelineServerWorker()
@@ -406,7 +425,7 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 	// INIT connector
 	cmWorker := NewPipelineServerWorker()
 	cmWorker.inboundQueryChannel = cacheWorker.outboundQueryChannel
-	cmWorker.failedQueryChannel = failerWorker.inboundQueryChannel
+	cmWorker.failedQueryChannel = finisherWorker.inboundQueryChannel
 	cm := &connector{
 		pipelineServerWorker: cmWorker,
 		client:               client,
