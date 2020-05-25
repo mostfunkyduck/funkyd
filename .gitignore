@@ -2,4 +2,6 @@ src/*
 pkg/*
 funkyd.test
 funkyd
+cscope.out
+cscope.files
 !testdata/funkyd

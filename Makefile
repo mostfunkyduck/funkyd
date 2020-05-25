@@ -3,12 +3,21 @@ HOSTNAME=`hostname`
 DATE=`date +%Y.%m.%d.%H.%M`
 BRANCH=`git branch 2>/dev/null | grep '\*' | sed "s/* //"`
 
-.PHONY: mocks all unittest performancetest test docker clean
+.PHONY: mocks all unittest performancetest test docker clean cscope
 
 all: test funkyd
 
 clean:
 	go clean
+
+cscope:
+	# this will add a local index called 'cscope.out' based on a collection of source files in 'cscope.files'
+	# adding all go src files
+	find ~/go/src -name "*.go" -print >> ./cscope.files
+	# adding local source code
+	find . -name "*.go" -print >> cscope.files
+	# running cscope, the -b and -k flags will keep things narrowly scoped
+	cscope -b -k
 
 docker:
 	sudo docker-compose build
