@@ -313,6 +313,8 @@ func (c *connPool) Size() int {
 	return size
 }
 
+// maintains the internal list of upstreams that this connection pool
+// will attempt to connect to
 func (c *connPool) AddUpstream(r *Upstream) {
 	c.upstreams = append(c.upstreams, r)
 }
