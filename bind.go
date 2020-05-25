@@ -1,6 +1,6 @@
 package main
 
-// This module handles the local zone file management
+// This module handles the local zone file management.
 import (
 	"fmt"
 	"github.com/miekg/dns"

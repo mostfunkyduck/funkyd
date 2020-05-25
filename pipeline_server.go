@@ -39,57 +39,11 @@ type pipelineServerWorker struct {
 	cancelChannel chan bool
 }
 
-// Handles initial connection acceptance
-// Dispatch: forwards to PipelineCacher
-// Fail: forwards to PipelineFinisher for servfailing
-type QueryHandler interface {
-	PipelineServerWorker
-	ServeDNS(w dns.ResponseWriter, r *dns.Msg)
-}
-
-// checks queries against the cache
-// Dispatch: cache hit - forwards to PipelineQuerier
-// Fail: cache miss - forward to connector
-type Cacher interface {
-	PipelineServerWorker
-
-	// determines if this query is cached
-	CheckCache(q Query) (Response, bool)
-
-	// adds a query to the cache
-	CacheQuery(q Query)
-}
+/** Worker Implementations **/
 
 // Pairs outbound queries with connections
 // Dispatch: connection is successful, forward to PipelineQuerier
 // Fail: connection failure, forward to PipelineFinisher for servfail
-type Connector interface {
-	PipelineServerWorker
-
-	// Assigns a given connection to a query
-	AssignConnection(q Query) Query
-
-	// adds an upstream to an internal list
-	AddUpstream(u *Upstream)
-}
-
-// does actual queries
-// Dispatch: query successful, forward to replier for happy response
-// Fail: send back to connector for a new connection, this will keep happening until the connector gives up
-type Querier interface {
-	PipelineServerWorker
-
-	// looks up records
-	Query(q Query) (Query, error)
-}
-
-// fails a query by sending servfail to the original query
-type Failer interface {
-	PipelineServerWorker
-}
-
-/** Worker Implementations **/
-
 type connector struct {
 	pipelineServerWorker
 
@@ -99,6 +53,10 @@ type connector struct {
 	// Client for making outbound connections
 	client Client
 }
+
+// checks queries against the cache
+// Dispatch: cache hit - forwards to PipelineQuerier
+// Fail: cache miss - forward to connector
 
 type PipelineCacher struct {
 	pipelineServerWorker
@@ -110,11 +68,17 @@ type PipelineCacher struct {
 	cachingChannel chan Query
 }
 
-// handles initial inbound query acceptance
+// Handles initial connection acceptance
+// Dispatch: forwards to PipelineCacher
+// Fail: forwards to PipelineFinisher for servfailing
+
 type PipelineQueryHandler struct {
 	pipelineServerWorker
 }
 
+// does actual queries
+// Dispatch: query successful, forward to replier for happy response
+// Fail: send back to connector for a new connection, this will keep happening until the connector gives up
 type PipelineQuerier struct {
 	pipelineServerWorker
 
@@ -147,7 +111,7 @@ type Query struct {
 	Reply *dns.Msg
 
 	// the response writer to reply on
-	W	*dns.ResponseWriter
+	W ResponseWriter
 }
 
 /** base worker functions **/
@@ -276,26 +240,26 @@ func (q *PipelineQuerier) Start() {
 	go func() {
 		for {
 			select {
-				case _ = <-q.cancelChannel:
-					return
-				case query := <-q.inboundQueryChannel:
-					query, err := q.Query(query)
-					if err != nil {
-						Logger.Log(LogMessage{
-							Level: ERROR,
-							Context: LogContext{
-								"what":  "error retrieving record for domain",
-								"query": query.Msg.String(),
-								"error": err.Error(),
-								"next":  "failing query",
-							},
-						})
-						// fail to PipelineFinisher
-						q.Fail(query)
-						continue
-					}
-					// dispatch to replier
-					q.Dispatch(query)
+			case _ = <-q.cancelChannel:
+				return
+			case query := <-q.inboundQueryChannel:
+				query, err := q.Query(query)
+				if err != nil {
+					Logger.Log(LogMessage{
+						Level: ERROR,
+						Context: LogContext{
+							"what":  "error retrieving record for domain",
+							"query": query.Msg.String(),
+							"error": err.Error(),
+							"next":  "failing query",
+						},
+					})
+					// fail to PipelineFinisher
+					q.Fail(query)
+					continue
+				}
+				// dispatch to replier
+				q.Dispatch(query)
 			}
 		}
 	}()
@@ -352,16 +316,17 @@ func (p *PipelineFinisher) Start() {
 	go func() {
 		for {
 			select {
-				case _ = <-p.cancelChannel:
-					return
-				case q := <-p.inboundQueryChannel:
-					q.W.WriteMsg(m)
-					logQuery("servfail", duration, m)
-					sendServfail(q.W, q.Timer.ObserveDuration(), q.Reply)
+			case _ = <-p.cancelChannel:
+				return
+			case q := <-p.inboundQueryChannel:
+				q.W.WriteMsg(q.Reply)
+				duration := q.Timer.ObserveDuration()
+				logQuery(q.Upstream.GetAddress(), duration, q.Reply)
 			}
 		}
 	}()
 }
+
 /** generic functions **/
 
 func logCancellation(name string) {

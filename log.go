@@ -13,6 +13,7 @@ import (
 type LogLevel int
 
 const (
+	//nolint
 	NOLOG LogLevel = iota
 	CRITICAL
 	ERROR

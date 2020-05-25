@@ -68,6 +68,7 @@ func setContentTypeHeader(next http.Handler) http.Handler {
 	})
 }
 
+//nolint
 var HttpServer *http.Server
 
 func InitApi() {
