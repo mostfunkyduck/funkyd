@@ -1,0 +1,15 @@
+if ! command -v gofmt >/dev/null; then
+  echo >&2 "gofmt could not be found"
+  exit 1
+fi
+
+output=$(gofmt -l *.go 2>&1)
+if [ $? -ne 0 ]; then
+  echo "non zero exit code from 'gofmt -l'"
+  exit 1
+fi
+
+if [ -n "$output" ]; then
+  echo "please run 'go fmt', the following are unformatted:\n$output"
+  exit 1
+fi
