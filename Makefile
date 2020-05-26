@@ -5,10 +5,17 @@ BRANCH=`git branch 2>/dev/null | grep '\*' | sed "s/* //"`
 
 .PHONY: mocks all unittest performancetest test docker clean cscope
 
-all: test funkyd
+all: githooks test funkyd
+
+githooks: .githooks/*
+	# removing old git hooks
+	rm .git/hooks/pre-commit
+	# deploying git hooks
+	ln -s $$PWD/.githooks/pre-commit ./.git/hooks/pre-commit
 
 clean:
 	go clean
+	rm cscope.files cscope.out
 
 cscope:
 	# this will add a local index called 'cscope.out' based on a collection of source files in 'cscope.files'
@@ -35,10 +42,10 @@ performancetest: docker
 test: unittest performancetest
 
 funkyd: *.go
-	# putting this here so that it can call the 'revision' alias
-	# and get the tag based on that
 	$(eval TAG := $(shell git tag --points-at $(REVISION)))
+	# updating packages
 	go get
+	# building funkyd
 	go build -ldflags "-X main.versionHostname=$(HOSTNAME) -X main.versionDate=$(DATE) -X main.versionBranch=$(BRANCH) -X main.versionTag=$(TAG) -X main.versionRevision=$(REVISION)"
 
 mocks: *.go
