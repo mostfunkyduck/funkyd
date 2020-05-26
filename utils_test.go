@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"github.com/miekg/dns"
+	"net"
 	"time"
 )
 
@@ -25,4 +26,51 @@ func WaitForCondition(x int, f func() bool) (result bool) {
 		time.Sleep(time.Duration(100) * time.Millisecond)
 	}
 	return
+}
+
+func buildRequest() (request *dns.Msg) {
+	return &dns.Msg{
+		Question: []dns.Question{
+			dns.Question{
+				Name:   "example.com",
+				Qtype:  1,
+				Qclass: 1,
+			},
+		},
+	}
+
+}
+func buildQuery() (q Query) {
+	writer := &MockResponseWriter{}
+	qdt := &MockQueryDurationTimer{}
+
+	q = Query{
+		W:     writer,
+		Msg:   &dns.Msg{},
+		Reply: &dns.Msg{},
+		Timer: qdt,
+	}
+	return q
+}
+
+func buildAnswer() (m *dns.Msg) {
+	a, err := dns.NewRR("example.com.	123	IN	A	10.0.0.0")
+	if err != nil {
+		panic(fmt.Sprintf("couldn't create answer for query: %s", err))
+	}
+	return &dns.Msg{
+		Answer: []dns.RR{
+			a,
+		},
+	}
+}
+
+func buildConnEntry() (c *ConnEntry) {
+	s, cl := net.Pipe()
+	s.Close()
+	return &ConnEntry{
+		Conn: &dns.Conn{
+			Conn: cl,
+		},
+	}
 }

@@ -141,28 +141,34 @@ func (c *connector) AddUpstream(u *Upstream) {
 
 func (c connector) Start() {
 	go func() {
-		for query := range c.inboundQueryChannel {
-			assignedQuery, err := c.AssignConnection(query)
-			if err != nil {
-				Logger.Log(LogMessage{
-					Level: ERROR,
-					Context: LogContext{
-						"what":  "connection manager failed to assign connection to query",
-						"query": assignedQuery.Msg.String(),
-						"next":  "dispatching to be SERVFAILed",
-					},
-				})
-				// fail to PipelineFinisher
-				c.Fail(assignedQuery)
+		for {
+			select {
+			case query := <-c.inboundQueryChannel:
+				assignedQuery, err := c.AssignConnection(query)
+				if err != nil {
+					Logger.Log(LogMessage{
+						Level: ERROR,
+						Context: LogContext{
+							"what":  "connection manager failed to assign connection to query",
+							"query": assignedQuery.Msg.String(),
+							"next":  "dispatching to be SERVFAILed",
+						},
+					})
+					// fail to PipelineFinisher
+					c.Fail(assignedQuery)
+				}
+				// FIXME there seems to be a case where the PipelineQuerier will be blocked
+				// FIXME on the connector accepting whilst the connector is blocked
+				// FIXME on the PipelineQuerier rejecting messages
+				// FIXME one possible solution might be to have the PipelineQuerier do connection
+				// FIXME mgm't, essentially collapsing this into that, there'd be more work
+				// FIXME than i want to handle in the PipelineQuerier, but that's better than deadlock
+				// dispatch to PipelineQuerier
+				c.Dispatch(assignedQuery)
+			case _ = <-c.cancelChannel:
+				logCancellation("connector")
+				return
 			}
-			// FIXME there seems to be a case where the PipelineQuerier will be blocked
-			// FIXME on the connector accepting whilst the connector is blocked
-			// FIXME on the PipelineQuerier rejecting messages
-			// FIXME one possible solution might be to have the PipelineQuerier do connection
-			// FIXME mgm't, essentially collapsing this into that, there'd be more work
-			// FIXME than i want to handle in the PipelineQuerier, but that's better than deadlock
-			// dispatch to PipelineQuerier
-			c.Dispatch(assignedQuery)
 		}
 	}()
 }
@@ -206,13 +212,13 @@ func (q *PipelineQueryHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	q.HandleDNS(w, r)
 }
 
-func (s *PipelineQueryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
+func (q *PipelineQueryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
 	TotalDnsQueriesCounter.Inc()
 	queryTimer := prometheus.NewTimer(QueryTimer)
 
 	QueuedQueriesGauge.Inc()
 	// dispatch to PipelineCacher
-	s.Dispatch(Query{
+	q.Dispatch(Query{
 		Msg:   r,
 		Timer: queryTimer,
 	})
@@ -254,6 +260,7 @@ func (q *PipelineQuerier) Start() {
 		for {
 			select {
 			case _ = <-q.cancelChannel:
+				logCancellation("PipelineQuerier")
 				return
 			case query := <-q.inboundQueryChannel:
 				query, err := q.Query(query)
@@ -330,6 +337,7 @@ func (p *PipelineFinisher) Start() {
 		for {
 			select {
 			case _ = <-p.cancelChannel:
+				logCancellation("PipelineFinisher")
 				return
 			case q := <-p.servfailsChannel:
 				failingQuery := q
@@ -387,14 +395,17 @@ func NewPipelineServerWorker() pipelineServerWorker {
 	}
 }
 
-func NewQueryHandler(cl Client, pool ConnPool) (err error) {
+// NewPipelineServer Builds all of the pieces of the pipeline server
+// returns the pipeline query handler (the first step in this process), a list
+// of cancel channels for turning off the workers, and an optional error
+func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cancelChannels []chan bool, err error) {
 	config := GetConfiguration()
 	client := cl
 	if client == nil {
 		var err error
 		client, err = BuildClient()
 		if err != nil {
-			return fmt.Errorf("could not build client [%s]", err.Error())
+			return qh, cancelChannels, fmt.Errorf("could not build client [%s]", err.Error())
 		}
 	}
 
@@ -414,7 +425,7 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 	// the handler passes good queries to the cacher
 	cache, err := NewCache()
 	if err != nil {
-		return fmt.Errorf("could not create record cache for PipelineCacher: %s", err.Error())
+		return qh, cancelChannels, fmt.Errorf("could not create record cache for PipelineCacher: %s", err.Error())
 	}
 
 	cachr := &PipelineCacher{
@@ -471,5 +482,14 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 	querierWorker.outboundQueryChannel = pipelineFinisher.inboundQueryChannel
 	querierWorker.failedQueryChannel = connectr.inboundQueryChannel
 	querierWorker.servfailsChannel = pipelineFinisher.servfailsChannel
-	return nil
+
+	cancelChannels = []chan bool{
+		// the query handler is going to keep going until the underlying server stops
+		// cancellation is not implemenmted
+		// queryHandler.cancelChannel,
+		cacheWorker.cancelChannel,
+		connectorWorker.cancelChannel,
+		querierWorker.cancelChannel,
+	}
+	return *queryHandler, cancelChannels, nil
 }

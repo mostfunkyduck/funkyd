@@ -100,16 +100,7 @@ func TestCacher(t *testing.T) {
 		cache:                cache,
 	}
 
-	msg := &dns.Msg{
-		Question: []dns.Question{
-			dns.Question{
-				Name:   "example.com",
-				Qtype:  1,
-				Qclass: 1,
-			},
-		},
-	}
-
+	msg := buildRequest()
 	qu := Query{}
 	if cached, ok := c.CheckCache(qu); ok {
 		t.Fatalf("no error returned when empty query was passed in, cached: [%v]", cached)
@@ -127,16 +118,7 @@ func TestCacher(t *testing.T) {
 }
 
 func TestCacherStart(t *testing.T) {
-	msg := &dns.Msg{
-		Question: []dns.Question{
-			dns.Question{
-				Name:   "example.com",
-				Qtype:  1,
-				Qclass: 1,
-			},
-		},
-	}
-
+	msg := buildRequest()
 	cw := NewPipelineServerWorker()
 	cache := &MockCache{}
 
@@ -291,19 +273,51 @@ func TestFinisherStartErrors(t *testing.T) {
 	p.Start()
 	defer func() { p.cancelChannel <- true }()
 
-	writer := &MockResponseWriter{}
-	qdt := &MockQueryDurationTimer{}
-	writer.On("WriteMsg", mock.Anything).Return(fmt.Errorf("argh"))
-	qdt.On("ObserveDuration").Return(time.Duration(100))
-
-	q := Query{
-		W:     writer,
-		Msg:   &dns.Msg{},
-		Reply: &dns.Msg{},
-		Timer: qdt,
-	}
+	q := buildQuery()
+	q.W.(*MockResponseWriter).On("WriteMsg", mock.Anything).Return(fmt.Errorf("argh"))
+	q.Timer.(*MockQueryDurationTimer).On("ObserveDuration").Return(time.Duration(100))
 
 	p.inboundQueryChannel <- q
 
 	p.servfailsChannel <- q
+}
+
+func TestEndToEnd(t *testing.T) {
+	client := &MockClient{}
+	cpool := &MockConnPool{}
+	writer := &MockResponseWriter{}
+
+	entry := &ConnEntry{}
+	upstream := Upstream{
+		Name: "example.com",
+	}
+	reply := buildAnswer()
+
+	writer.On("WriteMsg", reply).Return(nil)
+	client.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(100), nil)
+	cpool.On("Get").Return(nil, upstream, nil)
+	cpool.On("NewConnection", mock.Anything, mock.Anything).Return(entry, nil)
+
+	request := buildRequest()
+	qh, cancels, err := NewPipelineServer(client, cpool)
+	if err != nil {
+		t.Fatalf("could not build pipeline server: %s", err)
+	}
+	defer func() {
+		for _, each := range cancels {
+			each <- true
+		}
+	}()
+
+	qh.HandleDNS(writer, request)
+
+	/**
+	WaitForCondition(10, func() bool {
+		return len(writer.Calls) == len(writer.ExpectedCalls)
+	})
+
+	writer.AssertExpectations(t)
+	client.AssertExpectations(t)
+	cpool.AssertExpectations(t)
+	**/
 }

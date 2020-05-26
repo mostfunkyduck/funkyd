@@ -24,6 +24,9 @@ cscope:
 	# running cscope, the -b and -k flags will keep things narrowly scoped
 	cscope -b -k
 
+ctags:
+	ctags -R
+
 docker:
 	sudo docker-compose build
 	sudo docker build -t funkyd/dnsperf -f ./Dockerfile.dnsperf .
