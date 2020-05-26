@@ -37,6 +37,9 @@ type pipelineServerWorker struct {
 	// channel for dispatching successful queries
 	outboundQueryChannel chan Query
 
+	// channel for hard failing queries
+	servfailsChannel chan Query
+
 	// cancel channel - mainly for testing, nobody
 	// else is likely to have this channel
 	// TODO evaluate some kind of global cancellation
@@ -379,6 +382,7 @@ func NewPipelineServerWorker() pipelineServerWorker {
 		inboundQueryChannel:  make(chan Query, 100),
 		outboundQueryChannel: make(chan Query, 100),
 		failedQueryChannel:   make(chan Query, 100),
+		servfailsChannel:     make(chan Query, 100),
 		cancelChannel:        make(chan bool),
 	}
 }
@@ -394,7 +398,7 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 		}
 	}
 
-	ret := &PipelineQueryHandler{
+	queryHandler := &PipelineQueryHandler{
 		pipelineServerWorker: NewPipelineServerWorker(),
 	}
 
@@ -403,16 +407,11 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 	pipelineFinisher := &PipelineFinisher{
 		pipelineServerWorker: finisherWorker,
 	}
-
-	// handler fails by sending servfails to finisher
-	ret.failedQueryChannel = pipelineFinisher.servfailsChannel
 	defer pipelineFinisher.Start()
 
 	// INIT PipelineCacher
 	cacheWorker := NewPipelineServerWorker()
-
 	// the handler passes good queries to the cacher
-	cacheWorker.inboundQueryChannel = ret.outboundQueryChannel
 	cache, err := NewCache()
 	if err != nil {
 		return fmt.Errorf("could not create record cache for PipelineCacher: %s", err.Error())
@@ -427,12 +426,13 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 
 	// INIT connector
 	connectorWorker := NewPipelineServerWorker()
-	connectorWorker.inboundQueryChannel = cacheWorker.outboundQueryChannel
 	connectr := &connector{
 		pipelineServerWorker: connectorWorker,
 		client:               client,
 		connPool:             NewConnPool(),
 	}
+
+	// the connector needs to know about all our upstreams to make connections
 	for _, name := range config.Upstreams {
 		upstream := &Upstream{
 			Name: name,
@@ -444,18 +444,32 @@ func NewQueryHandler(cl Client, pool ConnPool) (err error) {
 
 	// INIT PipelineQuerier
 	querierWorker := NewPipelineServerWorker()
-	// successful connections from the connector go to the querier
-	querierWorker.inboundQueryChannel = connectr.outboundQueryChannel
-
-	// a cache miss also goes to the querier
-	cacheWorker.failedQueryChannel = querierWorker.inboundQueryChannel
-
-	// failed queries get retried by the connectr
-	querierWorker.failedQueryChannel = connectr.inboundQueryChannel
 	PipelineQuerier := &PipelineQuerier{
 		pipelineServerWorker: querierWorker,
 		client:               client,
 	}
 	defer PipelineQuerier.Start()
+
+	// Now set up the links
+
+	// query handler passes queries to the cacher, fails them to the servfail channel
+	queryHandler.failedQueryChannel = pipelineFinisher.servfailsChannel
+	queryHandler.outboundQueryChannel = cacheWorker.inboundQueryChannel
+	queryHandler.servfailsChannel = pipelineFinisher.servfailsChannel
+
+	// the cache worker passes cached queries to the finisher, cache misses to the connector
+	cacheWorker.outboundQueryChannel = pipelineFinisher.inboundQueryChannel
+	cacheWorker.failedQueryChannel = connectorWorker.inboundQueryChannel
+	cacheWorker.servfailsChannel = pipelineFinisher.servfailsChannel
+
+	// fails go to the servfail channel, successful connections go to the querier worker
+	connectorWorker.outboundQueryChannel = querierWorker.inboundQueryChannel
+	connectorWorker.failedQueryChannel = pipelineFinisher.servfailsChannel
+	connectorWorker.servfailsChannel = pipelineFinisher.servfailsChannel
+
+	// failed queries get retried by the connectr
+	querierWorker.outboundQueryChannel = pipelineFinisher.inboundQueryChannel
+	querierWorker.failedQueryChannel = connectr.inboundQueryChannel
+	querierWorker.servfailsChannel = pipelineFinisher.servfailsChannel
 	return nil
 }
