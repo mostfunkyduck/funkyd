@@ -143,24 +143,19 @@ func (c connEntry) GetUpstream() (upstream *Upstream) {
 	return &c.upstream
 }
 func (ce connEntry) GetWeight() (weight UpstreamWeight) {
-	// Division of time values: this will produce the actual number of ms
-	// but if you try to use it in a time.Duration, it'll be viewed as nanoseconds
-	// makes sense since the time.Duration type is just a number thats assumed
-	// to be ns
-	currentRTT := UpstreamWeight(ce.totalRTT / time.Millisecond)
-	if currentRTT == 0.0 || ce.exchanges == 0 {
+	if ce.totalRTT == 0 || ce.exchanges == 0 {
 		// this connection hasn't seen any actual connection time, no weight
 		weight = 0
 	} else {
-		weight = currentRTT / UpstreamWeight(ce.exchanges)
+		weight = UpstreamWeight(ce.totalRTT / time.Millisecond) / UpstreamWeight(ce.exchanges)
 	}
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
 			"what":               "setting weight on connection",
 			"connection_address": ce.GetAddress(),
-			"currentRTT":         fmt.Sprintf("%f", currentRTT),
-			"exchanges":          fmt.Sprintf("%f", UpstreamWeight(ce.exchanges)),
+			"currentRTT":         fmt.Sprintf("%s", ce.totalRTT),
+			"exchanges":          fmt.Sprintf("%d", ce.exchanges),
 			"new_weight":         fmt.Sprintf("%f", weight),
 		},
 		func() string { return fmt.Sprintf("upstream [%v] connection [%v]", ce.upstream, ce) },
