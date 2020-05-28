@@ -31,6 +31,12 @@ type ConnEntry interface {
 
 	// Closes the connection stored by this connentry
 	Close()
+
+	// Tells the conn entry to track a new error
+	AddError()
+
+	// Determines if the conn entry has seen any errors
+	Error() bool
 }
 
 type ConnPool interface {
@@ -84,6 +90,9 @@ type connEntry struct {
 
 	// The total exchanges for this connection
 	exchanges int
+
+	// whether this connection hit an error
+	error bool
 }
 
 type Lock struct {
@@ -91,8 +100,29 @@ type Lock struct {
 	locklevel int
 }
 
+// flag this connentry as having errors
+func (c connEntry) AddError() {
+	c.error = true
+}
+
+// retrieves error status
+func (c connEntry) Error() bool {
+	return c.error
+}
+
 // Increment the internal counters tracking successful exchanges and durations
 func (c connEntry) AddExchange(rtt time.Duration) {
+	// TODO evaluate having multiple timeouts for dialing vs rtt'ing
+	RttTimeout := GetConfiguration().Timeout
+	if RttTimeout == 0 {
+		RttTimeout = 500
+	}
+	// check to see if this exchange took too long
+	if rtt > time.Duration(RttTimeout)*time.Millisecond {
+		// next time around, treat this as a bogus connection
+		c.AddError()
+	}
+
 	c.totalRTT += rtt
 	c.exchanges += 1
 }
@@ -113,6 +143,10 @@ func (c connEntry) GetUpstream() (upstream *Upstream) {
 	return &c.upstream
 }
 func (ce connEntry) GetWeight() (weight UpstreamWeight) {
+	// Division of time values: this will produce the actual number of ms
+	// but if you try to use it in a time.Duration, it'll be viewed as nanoseconds
+	// makes sense since the time.Duration type is just a number thats assumed
+	// to be ns
 	currentRTT := UpstreamWeight(ce.totalRTT / time.Millisecond)
 	if currentRTT == 0.0 || ce.exchanges == 0 {
 		// this connection hasn't seen any actual connection time, no weight
@@ -167,25 +201,46 @@ func (c *connPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 	// we want to prefer the upstream with the fastest connections and
 	// ditch them when they start to slow down
 	upstream.SetWeight(ce.GetWeight())
-	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress()).Set(float64(upstream.GetWeight()))
+
 }
 
-//  Will select the lowest weighted cached connection
+// Will select the lowest weighted cached connection
 // falling back to the lowest weighted upstream if none exist
-// will also clean up and close slow connections
+// upstreams that are cooling will be ignored
 func (c *connPool) getBestUpstream() (upstream Upstream) {
 	// get the first upstream with connections, default to the 0th connection on the list
 	// iterate through in order; this list is sorted based on weight
-	upstream = *c.upstreams[0] // start off with the default
+
+	var bestCandidate Upstream
+
 	// goal: find the highest lowest weighted upstream with connections
 	for _, each := range c.upstreams {
-		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
-			// is this upstream's weight more than double the best upstream?
-			// there were connections here, let's reuse them
-			return *each
+		if conns, ok := c.cache[each.GetAddress()]; ok {
+			// should this upstream be taking connections?
+			if !each.IsCooling() {
+				// it should. does it HAVE connections?
+				if len(conns) > 0 {
+					return *each
+				}
+
+				// it's open, but it doesn't have existing connections, let's
+				// use it iff there's no existing connections
+				if (bestCandidate == Upstream{}) {
+					bestCandidate = *each
+				}
+			}
 		}
 	}
-	return upstream
+
+	// if we got here, there are no cached connections, did we find a candidate?
+	// the candidate will be the lowest weighted connection that wasn't cooling
+	if (bestCandidate != Upstream{}) {
+		return bestCandidate
+	}
+
+	// no cached connections, everything is cooling, let's abuse the lowest
+	// weighted upstream
+	return *c.upstreams[0]
 }
 
 // arranges the upstreams based on weight
@@ -201,30 +256,45 @@ func (c *connPool) updateUpstream(ce ConnEntry) (err error) {
 	// get the actual pointer for this ce's upstream
 	upstream, err := c.getUpstreamByAddress(address)
 	if err != nil {
-		return fmt.Errorf("could not add conn entry with address [%s]: %s", address, err.Error())
+		return fmt.Errorf("could not update upstream with address [%s]: %s", address, err)
 	}
 
-	c.weightUpstream(upstream, ce)
+	// we may need to update after a fresh connection errored out
+	// so ignore weightless connections
+	if ce.GetWeight() != 0 {
+		c.weightUpstream(upstream, ce)
+	}
+
+	errorString := "no"
+	if upstream.IsCooling() {
+		errorString = "cooling"
+	}
+
+	if ce.Error() {
+		c.coolAndPurgeUpstream(upstream)
+		errorString += ", connection"
+	}
 
 	c.sortUpstreams()
-	return
-}
 
-// iterate through the cache and close connections to slow upstreams
-func (c *connPool) closeSlowUpstreams() {
-	upstream := *c.upstreams[0]
-	for _, each := range c.upstreams {
-		if conns, ok := c.cache[each.GetAddress()]; ok && len(conns) > 0 {
-			if upstream.GetWeight()*2 < each.GetWeight() {
-				// this upstream is way too heavy, and all the previous ones had no connections
-				// close all it's connections and let it cool down until we need it
-				for _, conn := range conns {
-					conn.Close()
-				}
-				c.cache[each.GetAddress()] = []ConnEntry{}
-			}
-		}
+	coolingString := "0"
+	if upstream.IsCooling() {
+		// Wake Up Time: wut :)
+		wut := upstream.WakeupTime()
+		coolingString = fmt.Sprintf(
+			"%d-%d-%d %d:%d:%d:%s",
+			wut.Year(),
+			wut.Month(),
+			wut.Day(),
+			wut.Hour(),
+			wut.Minute(),
+			wut.Second(),
+			time.Now().Sub(wut),
+		)
 	}
+
+	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), errorString, coolingString).Set(float64(upstream.GetWeight()))
+	return nil
 }
 
 // adds a connection to the cache
@@ -252,7 +322,7 @@ func (c *connPool) Add(ce ConnEntry) (err error) {
 		// the max is greater than zero and there's nothing here, so we can just insert
 		c.cache[address] = []ConnEntry{ce}
 	}
-	c.closeSlowUpstreams()
+
 	ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
 	return
 }
@@ -279,17 +349,20 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce ConnE
 	conn, err := dialFunc(address)
 	dialDuration := tlsTimer.ObserveDuration()
 	if err != nil {
-		Logger.Log(NewLogMessage(
-			ERROR,
-			LogContext{
-				"what":    "connection error",
-				"address": address,
-				"error":   err.Error(),
-			},
-			nil,
-		))
+		// errors! better cool this upstream
+		c.Lock()
+		defer c.Unlock()
+
+		upstream, upstreamErr := c.getUpstreamByAddress(address)
+		if upstreamErr != nil {
+			err = fmt.Errorf("could not retrieve upstream for %s: %s: %s", address, upstreamErr, err)
+			return &connEntry{}, err
+		}
+
+		c.coolAndPurgeUpstream(upstream)
+
 		FailedConnectionsCounter.WithLabelValues(address).Inc()
-		return &connEntry{}, err
+		return &connEntry{}, fmt.Errorf("cooling upstream, could not connect to [%s]: %s", address, err)
 	}
 
 	Logger.Log(NewLogMessage(
@@ -355,4 +428,35 @@ func (c *connPool) CloseConnection(ce ConnEntry) {
 	defer c.Unlock()
 	c.updateUpstream(ce)
 	ce.Close()
+}
+
+// take an upstream pointer (so that we can update the actual record)
+// and tell it to cool down, sever all connections
+// non re-entrant, needs outside locking
+func (c *connPool) coolAndPurgeUpstream(upstream *Upstream) {
+	config := GetConfiguration()
+	cooldownPeriod := time.Duration(500) * time.Millisecond
+	if config.CooldownPeriod != 0 {
+		cooldownPeriod = config.CooldownPeriod * time.Millisecond
+	}
+
+	upstream.Cooldown(cooldownPeriod)
+
+	c.purgeUpstream(*upstream)
+}
+
+// closes all connections that belong to a given upstream
+// non re-entrant
+func (c *connPool) purgeUpstream(upstream Upstream) {
+	addr := upstream.GetAddress()
+	if _, ok := c.cache[addr]; ok {
+		for _, conn := range c.cache[addr] {
+			// run async so as not to block queries that might be calling
+			go func(conn ConnEntry) {
+				c.CloseConnection(conn)
+			}(conn)
+		}
+		c.cache[addr] = []ConnEntry{}
+	}
+	ConnPoolSizeGauge.WithLabelValues(addr).Set(float64(len(c.cache[addr])))
 }

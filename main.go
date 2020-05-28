@@ -122,15 +122,14 @@ func main() {
 	}
 
 	if err := validateFlags(); err != nil {
-		fmt.Printf("error: %s\n", err.Error())
+		fmt.Printf("error validating flags: %s\n", err.Error())
 		os.Exit(1)
 	}
 	rand.Seed(time.Now().UnixNano())
 	BuildInfoGauge.WithLabelValues(GetVersion().String()).Set(1)
 	log.Printf("reading configuration from [%s]", *confFile)
 	// read in configuration
-	err := InitConfiguration(*confFile)
-	if err != nil {
+	if err := InitConfiguration(*confFile); err != nil {
 		log.Fatalf("could not open configuration: %s\n", err)
 	}
 
@@ -141,7 +140,14 @@ func main() {
 
 	server, err := NewMutexServer(nil, nil)
 	if err != nil {
-		log.Fatalf("could not initialize new server: %s\n", err)
+		Logger.Log(LogMessage{
+			Level: CRITICAL,
+			Context: LogContext{
+				"what":  "could not build mutex server",
+				"error": err.Error(),
+			},
+		})
+		os.Exit(1)
 	}
 
 	loadLocalZones(server)
@@ -162,9 +168,15 @@ func main() {
 
 	if config.Blackhole {
 		// PSYCH!
-		err := runBlackholeServer()
-		if err != nil {
-			log.Fatalf("Failed to run blackhole server: %s", err)
+		if err := runBlackholeServer(); err != nil {
+			Logger.Log(LogMessage{
+				Level: CRITICAL,
+				Context: LogContext{
+					"what":  "failed to start blackhole server",
+					"error": err.Error(),
+				},
+			})
+			os.Exit(1)
 		}
 	}
 
@@ -177,16 +189,30 @@ func main() {
 		},
 	})
 
-	go func(srv2 *dns.Server) {
+	go func(srvUDP *dns.Server) {
 		if err := srvUDP.ListenAndServe(); err != nil {
-			log.Fatalf("Failed to set up TCP listener: %s", err)
+			Logger.Log(LogMessage{
+				Level: CRITICAL,
+				Context: LogContext{
+					"what":  "error serving UDP",
+					"error": err.Error(),
+				},
+			})
 		}
 	}(srvUDP)
 
 	if err := srvTCP.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to set up UDP listener %s\n", err.Error())
+		Logger.Log(LogMessage{
+			Level: CRITICAL,
+			Context: LogContext{
+				"what":  "error serving TCP",
+				"error": err.Error(),
+			},
+		})
+		// bail here so it doesn't deadlock on the shutdown mutex
+		os.Exit(1)
 	}
 
-	// the server on the main thread may have terminated first, wait until all shutdowns are complete
+	// wait until all shutdowns are complete
 	shutdownMutex.Lock()
 }

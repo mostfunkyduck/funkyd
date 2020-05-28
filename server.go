@@ -107,18 +107,20 @@ func sockoptSetter(network, address string, c syscall.RawConn) (err error) {
 	return
 }
 
-func buildDialer() (dialer *net.Dialer) {
+func buildDialer(timeout time.Duration) (dialer *net.Dialer) {
 	return &net.Dialer{
 		Control: sockoptSetter,
+		Timeout: timeout,
 	}
 }
 
 func BuildClient() (*dns.Client, error) {
 	config := GetConfiguration()
+	timeout := config.Timeout * time.Millisecond
 	cl := &dns.Client{
 		SingleInflight: true,
-		Dialer:         buildDialer(),
-		Timeout:        config.Timeout * time.Millisecond,
+		Dialer:         buildDialer(timeout),
+		Timeout:        timeout,
 		Net:            "tcp-tls",
 		TLSConfig: &tls.Config{
 			InsecureSkipVerify: config.SkipUpstreamVerification,

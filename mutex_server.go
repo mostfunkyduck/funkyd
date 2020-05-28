@@ -25,6 +25,27 @@ type MutexServer struct {
 	connPool ConnPool
 }
 
+func (s *MutexServer) newConnection(upstream Upstream) (ce ConnEntry, err error) {
+	// we're supposed to connect to this upstream, no existing connections
+	// (this doesn't block)
+	ce, err = s.connPool.NewConnection(upstream, s.dnsClient.Dial)
+	if err != nil {
+		// leaving this at DEBUG since we're passing the actual error up
+		address := upstream.GetAddress()
+		Logger.Log(LogMessage{
+			Level: DEBUG,
+			Context: LogContext{
+				"error":    err.Error(),
+				"what":     "could not make new connection to upstream",
+				"address":  address,
+				"upstream": Logger.Sprintf(DEBUG, "upstream: [%v]", upstream),
+			},
+		})
+		return &connEntry{}, fmt.Errorf("could not connect to upstream [%s]: %s", address, err.Error())
+	}
+	return
+}
+
 func (s *MutexServer) GetConnection() (ce ConnEntry, err error) {
 	// There are 2 cases: cache miss and cache hit
 	// 	cache miss, no error: attempt to make a new connection
@@ -69,22 +90,41 @@ func (s *MutexServer) AddUpstream(r *Upstream) {
 func (s *MutexServer) attemptExchange(m *dns.Msg) (ce ConnEntry, reply *dns.Msg, err error) {
 	ce, err = s.GetConnection()
 	if err != nil {
-		Logger.Log(NewLogMessage(
-			ERROR,
-			LogContext{
+		Logger.Log(LogMessage{
+			Level: INFO,
+			Context: LogContext{
 				"what":  "error getting connection from pool",
 				"error": err.Error(),
-				"next":  "aborting exchange attempt"},
-			nil,
-		))
-		return
+			},
+		})
+		return ce, nil, fmt.Errorf("error getting connection from pool: %s", err.Error())
 	}
 	reply, err = attemptExchange(m, ce, s.dnsClient)
 	if err != nil {
+		/**
+			Not doing this, treating EOF errors as a sign that the server wants us to stfu
+		// a feeble attempt to filter out errors that are just the server cleaning up
+		// resources
+		if err.Error() != "EOF" {
+			ce.AddError()
+		}
+		**/
+		ce.AddError()
 		s.connPool.CloseConnection(ce)
-		return ce, reply, fmt.Errorf("could not complete exchange with upstream: %s", err.Error())
+		address := ce.GetAddress()
+		UpstreamErrorsCounter.WithLabelValues(address).Inc()
+		Logger.Log(LogMessage{
+			Level: DEBUG,
+			Context: LogContext{
+				"what":    fmt.Sprintf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address),
+				"error":   fmt.Sprintf("%s", err),
+				"request": Logger.Sprintf(DEBUG, "request [%v]", m),
+			},
+		})
+		// try the next one
+		return &connEntry{}, &dns.Msg{}, fmt.Errorf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address)
 	}
-	return
+	return ce, reply, nil
 }
 
 func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Response, address string, err error) {
@@ -253,6 +293,11 @@ func (s *MutexServer) GetConnectionPool() (pool ConnPool) {
 	return s.connPool
 }
 
+// never use this outside of tests, please
+func (s *MutexServer) SetConnectionPool(c ConnPool) {
+	s.connPool = c
+}
+
 func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 	config := GetConfiguration()
 	client := cl
@@ -314,25 +359,4 @@ func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 		})
 	}
 	return ret, nil
-}
-
-func (s *MutexServer) newConnection(upstream Upstream) (ce ConnEntry, err error) {
-	// we're supposed to connect to this upstream, no existing connections
-	// (this doesn't block)
-	ce, err = s.connPool.NewConnection(upstream, s.dnsClient.Dial)
-	if err != nil {
-		// leaving this at DEBUG since we're passing the actual error up
-		address := upstream.GetAddress()
-		Logger.Log(NewLogMessage(
-			DEBUG,
-			LogContext{
-				"error":   err.Error(),
-				"what":    "could not make new connection to upstream",
-				"address": address,
-			},
-			func() string { return fmt.Sprintf("upstream:[%v]", upstream) },
-		))
-		return ce, fmt.Errorf("could not connect to upstream (%s): %s", address, err.Error())
-	}
-	return
 }

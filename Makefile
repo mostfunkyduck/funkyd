@@ -41,12 +41,12 @@ benchmarks: mocks
 	# running benchmarks with 30s timeout
 	go test -v -timeout 30s -bench=.* -run=^$
 
-performancetest: docker
+performancetest:
 	sudo docker-compose up -d
 	./testdata/run_dnsperf.sh
 	sudo docker-compose down
 
-test: unittest benchmarks performancetest
+test: unittest benchmarks docker performancetest
 
 funkyd: *.go
 	$(eval TAG := $(shell git tag --points-at $(REVISION)))

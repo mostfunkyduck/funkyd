@@ -39,7 +39,6 @@
    protocol that is being used on top of TCP (for example, if the
    resolver was using TLS).
   ```
-  * TCP Fast Open? recommended by google and referred to in the spec as 'non-normative', might be fun
   * Not really normal for my use case, but ACL?
   ```
      Operators of recursive servers are advised to ensure that they only

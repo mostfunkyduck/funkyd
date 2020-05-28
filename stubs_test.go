@@ -14,6 +14,46 @@ func (s *StubResponseWriter) WriteMsg(m *dns.Msg) error {
 	return nil
 }
 
+type StubConnPool struct {
+	mock.Mock
+}
+
+func (s *StubConnPool) Get() (ce ConnEntry, upstream Upstream) {
+	server, c := net.Pipe()
+	server.Close()
+	ce = &connEntry{Conn: &dns.Conn{Conn: c}}
+	upstream = Upstream{}
+	return
+}
+
+// Adds a new connection to the pool
+func (s *StubConnPool) Add(ce ConnEntry) (err error) {
+	return nil
+}
+
+// Add a new upstream to the pool
+func (s *StubConnPool) AddUpstream(r *Upstream) {
+
+}
+
+func (s *StubConnPool) CloseConnection(ce ConnEntry) {}
+
+func (s *StubConnPool) Lock() {}
+
+func (s *StubConnPool) Unlock() {}
+func (s *StubConnPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce ConnEntry, err error) {
+	server, c := net.Pipe()
+	server.Close()
+	ce = &connEntry{Conn: &dns.Conn{Conn: c}}
+	err = nil
+	return
+}
+
+// Returns the number of open connections in the pool
+func (s *StubConnPool) Size() int {
+	return 0
+}
+
 type StubJanitor struct {
 	mock.Mock
 }
@@ -48,9 +88,12 @@ func (m *StubDnsClient) Dial(address string) (conn *dns.Conn, err error) {
 }
 
 // builds a stub server, connects to a stub client, returns the stuff
+// stub server = server with contents stubbed, not a stub of the server
+// that's confusing, will fix eventually
 func BuildStubServer() (Server, *StubDnsClient, error) {
 	testClient := new(StubDnsClient)
-	server, err := NewMutexServer(testClient, NewConnPool())
+	server, err := NewMutexServer(testClient, new(StubConnPool))
+	server.(*MutexServer).Cache.StopCleaningCrew()
 	if err != nil {
 		return server, testClient, err
 	}

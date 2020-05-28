@@ -22,13 +22,16 @@ func buildPool() ConnPool {
 func TestConnectionPoolSingleEntry(t *testing.T) {
 	pool := buildPool()
 	var upstream Upstream
-	if x, upstream := pool.Get(); (upstream == Upstream{}) {
+	x, upstream := pool.Get()
+	if (upstream == Upstream{}) {
 		t.Fatalf("could not retrieve upstream to connect to: [%v] [%v]", x, upstream)
 	}
 	pool.AddUpstream(&upstream)
 
 	ce, err := pool.NewConnection(upstream, func(addr string) (*dns.Conn, error) {
-		return &dns.Conn{}, nil
+		server, client := net.Pipe()
+		server.Close()
+		return &dns.Conn{Conn: client}, nil
 	})
 	if err != nil {
 		t.Fatalf("could not make connection to upstream [%v]: %s", upstream, err.Error())
@@ -83,7 +86,9 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 	for _, each := range upstreams {
 		address := each.GetAddress()
 		ce, err := pool.NewConnection(*each, func(addr string) (*dns.Conn, error) {
-			return &dns.Conn{}, nil
+			server, client := net.Pipe()
+			server.Close()
+			return &dns.Conn{Conn: client}, nil
 		})
 		if err != nil {
 			t.Fatalf("could not get new connection on address [%s] upstream [%v]: %s", address, each, err.Error())
@@ -206,12 +211,7 @@ func TestConnectionPoolAddSlowConnection(t *testing.T) {
 /** BENCHMARKS **/
 
 func BenchmarkConnectionParallel(b *testing.B) {
-	server, _, err := BuildStubServer()
-	if err != nil {
-		b.Fatalf("could not initialize server [%s]", err)
-	}
-
-	pool := server.GetConnectionPool()
+	pool := NewConnPool()
 	b.RunParallel(func(pb *testing.PB) {
 		i := 1
 		for pb.Next() {
@@ -219,7 +219,12 @@ func BenchmarkConnectionParallel(b *testing.B) {
 				Port: i,
 				Name: "example.com",
 			}
-			pool.NewConnection(upstream, UpstreamTestingDialer(upstream))
+			ce, err := pool.NewConnection(upstream, UpstreamTestingDialer(upstream))
+			if err != nil {
+				b.Fatalf("could not create new connection for upstream %d: %s", i, err)
+			} else {
+				pool.CloseConnection(ce)
+			}
 			i++
 		}
 	})
