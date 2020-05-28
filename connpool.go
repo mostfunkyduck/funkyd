@@ -147,7 +147,7 @@ func (ce connEntry) GetWeight() (weight UpstreamWeight) {
 		// this connection hasn't seen any actual connection time, no weight
 		weight = 0
 	} else {
-		weight = UpstreamWeight(ce.totalRTT / time.Millisecond) / UpstreamWeight(ce.exchanges)
+		weight = UpstreamWeight(ce.totalRTT/time.Millisecond) / UpstreamWeight(ce.exchanges)
 	}
 	Logger.Log(NewLogMessage(
 		DEBUG,
@@ -245,6 +245,21 @@ func (c *connPool) sortUpstreams() {
 	})
 }
 
+func (c *connPool) updateUpstreamTelemetry(u Upstream, errorString string) {
+	wut := u.WakeupTime()
+	coolingString := fmt.Sprintf(
+		"%d-%d-%d %d:%d:%d:%s",
+		wut.Year(),
+		wut.Month(),
+		wut.Day(),
+		wut.Hour(),
+		wut.Minute(),
+		wut.Second(),
+		time.Now().Sub(wut),
+	)
+	UpstreamWeightGauge.WithLabelValues(u.GetAddress(), errorString, coolingString).Set(float64(u.GetWeight()))
+}
+
 // updates a upstream's weight based on a conn entry being added or closed
 func (c *connPool) updateUpstream(ce ConnEntry) (err error) {
 	address := ce.GetAddress()
@@ -260,35 +275,18 @@ func (c *connPool) updateUpstream(ce ConnEntry) (err error) {
 		c.weightUpstream(upstream, ce)
 	}
 
-	errorString := "no"
+	errorString := ""
 	if upstream.IsCooling() {
 		errorString = "cooling"
 	}
 
 	if ce.Error() {
 		c.coolAndPurgeUpstream(upstream)
-		errorString += ", connection"
+		errorString += " connection"
 	}
 
 	c.sortUpstreams()
-
-	coolingString := "0"
-	if upstream.IsCooling() {
-		// Wake Up Time: wut :)
-		wut := upstream.WakeupTime()
-		coolingString = fmt.Sprintf(
-			"%d-%d-%d %d:%d:%d:%s",
-			wut.Year(),
-			wut.Month(),
-			wut.Day(),
-			wut.Hour(),
-			wut.Minute(),
-			wut.Second(),
-			time.Now().Sub(wut),
-		)
-	}
-
-	UpstreamWeightGauge.WithLabelValues(upstream.GetAddress(), errorString, coolingString).Set(float64(upstream.GetWeight()))
+	c.updateUpstreamTelemetry(*upstream, errorString)
 	return nil
 }
 
@@ -355,7 +353,7 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce ConnE
 		}
 
 		c.coolAndPurgeUpstream(upstream)
-
+		c.updateUpstreamTelemetry(*upstream, "connection failure")
 		FailedConnectionsCounter.WithLabelValues(address).Inc()
 		return &connEntry{}, fmt.Errorf("cooling upstream, could not connect to [%s]: %s", address, err)
 	}
