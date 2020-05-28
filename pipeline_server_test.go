@@ -238,12 +238,12 @@ func TestQuerierStart(t *testing.T) {
 
 func TestFinisherStart(t *testing.T) {
 	pw := NewPipelineServerWorker()
-	// make this unbuffered so that completion of the test
-	// shows that the worker took from the q
 	p := PipelineFinisher{
 		pipelineServerWorker: pw,
 	}
 	pw.inboundQueryChannel = make(chan Query)
+	pw.outboundQueryChannel = make(chan Query)
+	pw.failedQueryChannel = make(chan Query)
 	p.servfailsChannel = make(chan Query)
 	p.Start()
 	defer func() { p.cancelChannel <- true }()
@@ -259,8 +259,9 @@ func TestFinisherStart(t *testing.T) {
 	}
 
 	p.inboundQueryChannel <- q
-
+	<-p.outboundQueryChannel
 	p.servfailsChannel <- q
+	<-p.failedQueryChannel
 }
 
 func TestFinisherStartErrors(t *testing.T) {
@@ -269,6 +270,8 @@ func TestFinisherStartErrors(t *testing.T) {
 		pipelineServerWorker: pw,
 	}
 	pw.inboundQueryChannel = make(chan Query)
+	pw.outboundQueryChannel = make(chan Query)
+	pw.failedQueryChannel = make(chan Query)
 	p.servfailsChannel = make(chan Query)
 	p.Start()
 	defer func() { p.cancelChannel <- true }()
@@ -278,8 +281,9 @@ func TestFinisherStartErrors(t *testing.T) {
 	q.Timer.(*MockQueryDurationTimer).On("ObserveDuration").Return(time.Duration(100))
 
 	p.inboundQueryChannel <- q
-
+	<-p.outboundQueryChannel
 	p.servfailsChannel <- q
+	<-p.failedQueryChannel
 }
 
 func TestEndToEnd(t *testing.T) {
@@ -287,18 +291,21 @@ func TestEndToEnd(t *testing.T) {
 	cpool := &MockConnPool{}
 	writer := &MockResponseWriter{}
 
-	entry := &connEntry{
-		Conn: &dns.Conn{},
-	}
+	entry := &MockConnEntry{}
 	upstream := Upstream{
 		Name: "example.com",
 	}
 	reply := buildAnswer()
 
-	writer.On("WriteMsg", reply).Return(nil)
+	writer.On("WriteMsg", mock.Anything).Return(nil)
 	client.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(100), nil)
-	cpool.On("Get").Return(nil, upstream, nil)
+	cpool.On("Get").Return(&MockConnEntry{}, upstream)
+	cpool.On("Add", mock.Anything).Return(nil)
 	cpool.On("NewConnection", mock.Anything, mock.Anything).Return(entry, nil)
+	entry.On("GetAddress").Return("example.com:853")
+	entry.On("AddExchange", mock.Anything)
+	entry.On("GetAddress").Return(upstream.GetAddress())
+	entry.On("GetConn").Return(&dns.Conn{})
 
 	request := buildRequest()
 	qh, cancels, err := NewPipelineServer(client, cpool)
@@ -314,12 +321,11 @@ func TestEndToEnd(t *testing.T) {
 	qh.HandleDNS(writer, request)
 
 	WaitForCondition(10, func() bool {
-		return len(writer.Calls) == len(writer.ExpectedCalls)
+		return len(cpool.Calls) == len(cpool.ExpectedCalls)
 	})
 
-	/**
+	entry.AssertExpectations(t)
 	writer.AssertExpectations(t)
 	client.AssertExpectations(t)
 	cpool.AssertExpectations(t)
-	**/
 }

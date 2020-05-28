@@ -59,6 +59,10 @@ type PipelineConnector struct {
 
 	// Client for making outbound connections
 	client Client
+
+	addingChannel chan Query
+
+	closingChannel chan Query
 }
 
 // checks queries against the cache
@@ -143,6 +147,10 @@ func (c *PipelineConnector) Start() {
 	go func() {
 		for {
 			select {
+			case query := <-c.addingChannel:
+				c.connPool.Add(query.Conn)
+			case query := <-c.closingChannel:
+				c.connPool.CloseConnection(query.Conn)
 			case query := <-c.inboundQueryChannel:
 				assignedQuery, err := c.AssignConnection(query)
 				if err != nil {
@@ -155,7 +163,7 @@ func (c *PipelineConnector) Start() {
 						},
 					})
 					// fail to PipelineFinisher
-					c.Fail(assignedQuery)
+					c.Fail(query)
 				}
 				// FIXME there seems to be a case where the PipelineQuerier will be blocked
 				// FIXME on the PipelineConnector accepting whilst the PipelineConnector is blocked
@@ -179,7 +187,11 @@ func (c *PipelineConnector) AssignConnection(q Query) (assignedQuery Query, err 
 	if (upstream != Upstream{}) {
 		var finalError error
 		// we need to make a new connection
-		for i := assignedQuery.ConnectionRetries; i < GetConfiguration().UpstreamRetries; i++ {
+		retries := GetConfiguration().UpstreamRetries
+		if retries == 0 {
+			retries = 2
+		}
+		for i := assignedQuery.ConnectionRetries; i < retries; i++ {
 			connEntry, err = c.connPool.NewConnection(upstream, c.client.Dial)
 			assignedQuery.ConnectionRetries++
 			if err != nil {
@@ -220,6 +232,7 @@ func (q *PipelineQueryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
 	// dispatch to PipelineCacher
 	q.Dispatch(Query{
 		Msg:   r,
+		W:     w,
 		Timer: queryTimer,
 	})
 	QueuedQueriesGauge.Dec()
@@ -263,7 +276,7 @@ func (q *PipelineQuerier) Start() {
 				logCancellation("PipelineQuerier")
 				return
 			case query := <-q.inboundQueryChannel:
-				query, err := q.Query(query)
+				qu, err := q.Query(query)
 				if err != nil {
 					Logger.Log(LogMessage{
 						Level: ERROR,
@@ -279,7 +292,7 @@ func (q *PipelineQuerier) Start() {
 					continue
 				}
 				// dispatch to replier
-				q.Dispatch(query)
+				q.Dispatch(qu)
 			}
 		}
 	}()
@@ -355,6 +368,7 @@ func (p *PipelineFinisher) Start() {
 				}
 				duration := q.Timer.ObserveDuration()
 				logQuery("servfail", duration, failingQuery.Reply)
+				p.Fail(q)
 			case q := <-p.inboundQueryChannel:
 				if err := q.W.WriteMsg(q.Reply); err != nil {
 					Logger.Log(LogMessage{
@@ -368,6 +382,7 @@ func (p *PipelineFinisher) Start() {
 				}
 				duration := q.Timer.ObserveDuration()
 				logQuery(q.Upstream.GetAddress(), duration, q.Reply)
+				p.Dispatch(q)
 			}
 		}
 	}()
@@ -444,6 +459,8 @@ func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cance
 		pipelineServerWorker: connectorWorker,
 		client:               client,
 		connPool:             pool,
+		addingChannel:        make(chan Query),
+		closingChannel:       make(chan Query),
 	}
 
 	// the PipelineConnector needs to know about all our upstreams to make connections
@@ -486,6 +503,9 @@ func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cance
 	querier.failedQueryChannel = connectr.inboundQueryChannel
 	querier.servfailsChannel = pipelineFinisher.servfailsChannel
 
+	// the finished dispatched queries back to the connpool for adding
+	pipelineFinisher.outboundQueryChannel = connectr.addingChannel
+	pipelineFinisher.failedQueryChannel = connectr.closingChannel
 	cancelChannels = []chan bool{
 		// the query handler is going to keep going until the underlying server stops
 		// cancellation is not implemenmted

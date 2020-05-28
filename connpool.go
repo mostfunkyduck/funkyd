@@ -24,7 +24,7 @@ type ConnEntry interface {
 	GetWeight() (weight UpstreamWeight)
 
 	// retrieves the underlying DNS connection for this entry
-	GetConn() (*dns.Conn)
+	GetConn() *dns.Conn
 
 	// retrives the underlying upstream for this entry
 	GetUpstream() (upstream *Upstream)
