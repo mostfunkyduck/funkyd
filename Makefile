@@ -9,7 +9,7 @@ all: githooks test funkyd
 
 githooks: .githooks/*
 	# removing old git hooks
-	rm .git/hooks/pre-commit
+	rm .git/hooks/pre-commit || /bin/true
 	# deploying git hooks
 	ln -s $$PWD/.githooks/pre-commit ./.git/hooks/pre-commit
 

@@ -118,7 +118,7 @@ func (c *connEntry) AddExchange(rtt time.Duration) {
 		RttTimeout = 500
 	}
 	// check to see if this exchange took too long
-	if rtt > time.Duration(RttTimeout) * time.Millisecond {
+	if rtt > time.Duration(RttTimeout)*time.Millisecond {
 		// next time around, treat this as a bogus connection
 		c.AddError()
 	}
