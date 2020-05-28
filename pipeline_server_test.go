@@ -27,10 +27,10 @@ func TestQueryHandler(t *testing.T) {
 func TestConnectorReuseConn(t *testing.T) {
 	testClient := &MockClient{}
 	testConnPool := &MockConnPool{}
-	testConnEntry := &ConnEntry{
+	testConnEntry := &connEntry{
 		Conn: &dns.Conn{},
 	}
-	c := &connector{
+	c := &PipelineConnector{
 		client:   testClient,
 		connPool: testConnPool,
 	}
@@ -42,7 +42,7 @@ func TestConnectorReuseConn(t *testing.T) {
 	}
 
 	if qu1.Conn == nil {
-		t.Fatalf("successful return from connector.AssignConnection didn't attach a conn to the query struct: [%v]", qu1)
+		t.Fatalf("successful return from PipelineConnector.AssignConnection didn't attach a conn to the query struct: [%v]", qu1)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestConnectorFailedAttempt(t *testing.T) {
 	testClient := &MockClient{}
 	testConnPool := &MockConnPool{}
 
-	c := &connector{
+	c := &PipelineConnector{
 		client:   testClient,
 		connPool: testConnPool,
 	}
@@ -68,14 +68,14 @@ func TestConnectorFailedAttempt(t *testing.T) {
 }
 func TestConnectorNewConn(t *testing.T) {
 	testConnPool := &MockConnPool{}
-	testConnEntry := &ConnEntry{
+	testConnEntry := &connEntry{
 		Conn: &dns.Conn{},
 	}
-	c := &connector{
+	c := &PipelineConnector{
 		client:   &MockClient{},
 		connPool: testConnPool,
 	}
-	testConnPool.On("Get", mock.Anything).Return(&ConnEntry{}, Upstream{Name: "example.com"})
+	testConnPool.On("Get", mock.Anything).Return(&connEntry{}, Upstream{Name: "example.com"})
 	testConnPool.On("NewConnection", mock.Anything, mock.Anything).Return(testConnEntry, nil)
 	qu := Query{}
 	qu1, err := c.AssignConnection(qu)
@@ -84,7 +84,7 @@ func TestConnectorNewConn(t *testing.T) {
 	}
 
 	if qu1.Conn != testConnEntry {
-		t.Fatalf("stored connection was not used by connector: [%v] [%v]", qu1.Conn, testConnEntry)
+		t.Fatalf("stored connection was not used by PipelineConnector: [%v] [%v]", qu1.Conn, testConnEntry)
 	}
 }
 
@@ -161,7 +161,7 @@ func TestQuerier(t *testing.T) {
 		pipelineServerWorker: pw,
 		client:               mockClient,
 	}
-	testConnEntry := &ConnEntry{
+	testConnEntry := &connEntry{
 		Conn: &dns.Conn{},
 	}
 
@@ -209,7 +209,7 @@ func TestQuerierStart(t *testing.T) {
 
 	q.Start()
 	defer func() { q.cancelChannel <- true }()
-	testConnEntry := &ConnEntry{
+	testConnEntry := &connEntry{
 		Conn: &dns.Conn{},
 	}
 
@@ -287,7 +287,9 @@ func TestEndToEnd(t *testing.T) {
 	cpool := &MockConnPool{}
 	writer := &MockResponseWriter{}
 
-	entry := &ConnEntry{}
+	entry := &connEntry{
+		Conn: &dns.Conn{},
+	}
 	upstream := Upstream{
 		Name: "example.com",
 	}
@@ -311,11 +313,11 @@ func TestEndToEnd(t *testing.T) {
 
 	qh.HandleDNS(writer, request)
 
-	/**
 	WaitForCondition(10, func() bool {
 		return len(writer.Calls) == len(writer.ExpectedCalls)
 	})
 
+	/**
 	writer.AssertExpectations(t)
 	client.AssertExpectations(t)
 	cpool.AssertExpectations(t)

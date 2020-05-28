@@ -25,7 +25,7 @@ type MutexServer struct {
 	connPool ConnPool
 }
 
-func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
+func (s *MutexServer) GetConnection() (ce ConnEntry, err error) {
 	// There are 2 cases: cache miss and cache hit
 	// 	cache miss, no error: attempt to make a new connection
 	//  cache hit: return the conn entry
@@ -43,7 +43,7 @@ func (s *MutexServer) GetConnection() (ce *ConnEntry, err error) {
 		))
 
 		if ce, err = s.newConnection(upstream); err != nil {
-			return &ConnEntry{}, err
+			return &connEntry{}, err
 		}
 	}
 
@@ -66,7 +66,7 @@ func (s *MutexServer) AddUpstream(r *Upstream) {
 	s.connPool.AddUpstream(r)
 }
 
-func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg, err error) {
+func (s *MutexServer) attemptExchange(m *dns.Msg) (ce ConnEntry, reply *dns.Msg, err error) {
 	ce, err = s.GetConnection()
 	if err != nil {
 		Logger.Log(NewLogMessage(
@@ -82,7 +82,7 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce *ConnEntry, reply *dns.Msg
 	reply, err = attemptExchange(m, ce, s.dnsClient)
 	if err != nil {
 		s.connPool.CloseConnection(ce)
-		return &ConnEntry{}, reply, fmt.Errorf("could not complete exchange with upstream: %s", err.Error())
+		return ce, reply, fmt.Errorf("could not complete exchange with upstream: %s", err.Error())
 	}
 	return
 }
@@ -98,7 +98,7 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Respons
 
 	// to avoid locals in the loop overriding what we need on the outer level
 	// predefine the vars here
-	var ce *ConnEntry
+	var ce ConnEntry
 	var r *dns.Msg
 	for i := 0; i <= config.UpstreamRetries; i++ {
 		if ce, r, err = s.attemptExchange(m); err == nil {
@@ -316,7 +316,7 @@ func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 	return ret, nil
 }
 
-func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error) {
+func (s *MutexServer) newConnection(upstream Upstream) (ce ConnEntry, err error) {
 	// we're supposed to connect to this upstream, no existing connections
 	// (this doesn't block)
 	ce, err = s.connPool.NewConnection(upstream, s.dnsClient.Dial)
@@ -332,7 +332,7 @@ func (s *MutexServer) newConnection(upstream Upstream) (ce *ConnEntry, err error
 			},
 			func() string { return fmt.Sprintf("upstream:[%v]", upstream) },
 		))
-		return &ConnEntry{}, fmt.Errorf("could not connect to upstream (%s): %s", address, err.Error())
+		return ce, fmt.Errorf("could not connect to upstream (%s): %s", address, err.Error())
 	}
 	return
 }

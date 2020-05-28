@@ -18,15 +18,15 @@ func (_m *MockServer) AddUpstream(u *Upstream) {
 }
 
 // GetConnection provides a mock function with given fields:
-func (_m *MockServer) GetConnection() (*ConnEntry, error) {
+func (_m *MockServer) GetConnection() (ConnEntry, error) {
 	ret := _m.Called()
 
-	var r0 *ConnEntry
-	if rf, ok := ret.Get(0).(func() *ConnEntry); ok {
+	var r0 ConnEntry
+	if rf, ok := ret.Get(0).(func() ConnEntry); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*ConnEntry)
+			r0 = ret.Get(0).(ConnEntry)
 		}
 	}
 

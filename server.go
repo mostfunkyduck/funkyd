@@ -36,7 +36,7 @@ type Server interface {
 	HandleDNS(w ResponseWriter, m *dns.Msg)
 
 	// Retrieves a new connection to an upstream
-	GetConnection() (*ConnEntry, error)
+	GetConnection() (ConnEntry, error)
 
 	// Runs a recursive query for a given record and record type
 	RecursiveQuery(domain string, rrtype uint16) (Response, string, error)
@@ -135,13 +135,13 @@ func BuildClient() (*dns.Client, error) {
 }
 
 // assumes that the caller will close connection upon any errors
-func attemptExchange(m *dns.Msg, ce *ConnEntry, client Client) (reply *dns.Msg, err error) {
+func attemptExchange(m *dns.Msg, ce ConnEntry, client Client) (reply *dns.Msg, err error) {
 	address := ce.GetAddress()
 	exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
 		ExchangeTimer.WithLabelValues(address).Observe(v)
 	}),
 	)
-	reply, rtt, err := client.ExchangeWithConn(m, ce.Conn.(*dns.Conn))
+	reply, rtt, err := client.ExchangeWithConn(m, ce.GetConn())
 	exchangeTimer.ObserveDuration()
 	ce.AddExchange(rtt)
 	if err != nil {

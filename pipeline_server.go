@@ -51,7 +51,7 @@ type pipelineServerWorker struct {
 // Pairs outbound queries with connections
 // Dispatch: connection is successful, forward to PipelineQuerier
 // Fail: connection failure, forward to PipelineFinisher for servfail
-type connector struct {
+type PipelineConnector struct {
 	pipelineServerWorker
 
 	// connection pool
@@ -63,7 +63,7 @@ type connector struct {
 
 // checks queries against the cache
 // Dispatch: cache hit - forwards to PipelineQuerier
-// Fail: cache miss - forward to connector
+// Fail: cache miss - forward to PipelineConnector
 
 type PipelineCacher struct {
 	pipelineServerWorker
@@ -85,7 +85,7 @@ type PipelineQueryHandler struct {
 
 // does actual queries
 // Dispatch: query successful, forward to replier for happy response
-// Fail: send back to connector for a new connection, this will keep happening until the connector gives up
+// Fail: send back to PipelineConnector for a new connection, this will keep happening until the PipelineConnector gives up
 type PipelineQuerier struct {
 	pipelineServerWorker
 
@@ -110,7 +110,7 @@ type Query struct {
 	Upstream Upstream
 
 	// The connection to use
-	Conn *ConnEntry
+	Conn ConnEntry
 
 	// how many times this query has had to retry a connection
 	ConnectionRetries int
@@ -134,12 +134,12 @@ func (p *pipelineServerWorker) Fail(q Query) {
 	p.failedQueryChannel <- q
 }
 
-/** connector **/
-func (c *connector) AddUpstream(u *Upstream) {
+/** PipelineConnector **/
+func (c *PipelineConnector) AddUpstream(u *Upstream) {
 	c.connPool.AddUpstream(u)
 }
 
-func (c connector) Start() {
+func (c *PipelineConnector) Start() {
 	go func() {
 		for {
 			select {
@@ -158,7 +158,7 @@ func (c connector) Start() {
 					c.Fail(assignedQuery)
 				}
 				// FIXME there seems to be a case where the PipelineQuerier will be blocked
-				// FIXME on the connector accepting whilst the connector is blocked
+				// FIXME on the PipelineConnector accepting whilst the PipelineConnector is blocked
 				// FIXME on the PipelineQuerier rejecting messages
 				// FIXME one possible solution might be to have the PipelineQuerier do connection
 				// FIXME mgm't, essentially collapsing this into that, there'd be more work
@@ -166,14 +166,14 @@ func (c connector) Start() {
 				// dispatch to PipelineQuerier
 				c.Dispatch(assignedQuery)
 			case _ = <-c.cancelChannel:
-				logCancellation("connector")
+				logCancellation("PipelineConnector")
 				return
 			}
 		}
 	}()
 }
 
-func (c *connector) AssignConnection(q Query) (assignedQuery Query, err error) {
+func (c *PipelineConnector) AssignConnection(q Query) (assignedQuery Query, err error) {
 	assignedQuery = q
 	connEntry, upstream := c.connPool.Get()
 	if (upstream != Upstream{}) {
@@ -319,7 +319,7 @@ func (c *PipelineCacher) Start() {
 					c.Dispatch(q)
 					break
 				}
-				//	pass to connector
+				//	pass to PipelineConnector
 				c.Fail(q)
 			case q := <-c.cachingChannel:
 				c.CacheQuery(q)
@@ -387,10 +387,10 @@ func logCancellation(name string) {
 func NewPipelineServerWorker() pipelineServerWorker {
 	return pipelineServerWorker{
 		//TODO evaluate whether we want these buffered or unbuffered
-		inboundQueryChannel:  make(chan Query, 100),
-		outboundQueryChannel: make(chan Query, 100),
-		failedQueryChannel:   make(chan Query, 100),
-		servfailsChannel:     make(chan Query, 100),
+		inboundQueryChannel:  make(chan Query),
+		outboundQueryChannel: make(chan Query),
+		failedQueryChannel:   make(chan Query),
+		servfailsChannel:     make(chan Query),
 		cancelChannel:        make(chan bool),
 	}
 }
@@ -431,19 +431,22 @@ func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cance
 	cachr := &PipelineCacher{
 		pipelineServerWorker: cacheWorker,
 		cache:                cache,
-		cachingChannel:       make(chan Query, 100),
+		cachingChannel:       make(chan Query),
 	}
 	defer cachr.Start()
 
-	// INIT connector
+	// INIT PipelineConnector
+	if pool == nil {
+		pool = NewConnPool()
+	}
 	connectorWorker := NewPipelineServerWorker()
-	connectr := &connector{
+	connectr := &PipelineConnector{
 		pipelineServerWorker: connectorWorker,
 		client:               client,
-		connPool:             NewConnPool(),
+		connPool:             pool,
 	}
 
-	// the connector needs to know about all our upstreams to make connections
+	// the PipelineConnector needs to know about all our upstreams to make connections
 	for _, name := range config.Upstreams {
 		upstream := &Upstream{
 			Name: name,
@@ -455,11 +458,11 @@ func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cance
 
 	// INIT PipelineQuerier
 	querierWorker := NewPipelineServerWorker()
-	PipelineQuerier := &PipelineQuerier{
+	querier := &PipelineQuerier{
 		pipelineServerWorker: querierWorker,
 		client:               client,
 	}
-	defer PipelineQuerier.Start()
+	defer querier.Start()
 
 	// Now set up the links
 
@@ -468,20 +471,20 @@ func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cance
 	queryHandler.outboundQueryChannel = cacheWorker.inboundQueryChannel
 	queryHandler.servfailsChannel = pipelineFinisher.servfailsChannel
 
-	// the cache worker passes cached queries to the finisher, cache misses to the connector
-	cacheWorker.outboundQueryChannel = pipelineFinisher.inboundQueryChannel
-	cacheWorker.failedQueryChannel = connectorWorker.inboundQueryChannel
-	cacheWorker.servfailsChannel = pipelineFinisher.servfailsChannel
+	// the cache worker passes cached queries to the finisher, cache misses to the PipelineConnector
+	cachr.outboundQueryChannel = pipelineFinisher.inboundQueryChannel
+	cachr.failedQueryChannel = connectr.inboundQueryChannel
+	cachr.servfailsChannel = pipelineFinisher.servfailsChannel
 
 	// fails go to the servfail channel, successful connections go to the querier worker
-	connectorWorker.outboundQueryChannel = querierWorker.inboundQueryChannel
-	connectorWorker.failedQueryChannel = pipelineFinisher.servfailsChannel
-	connectorWorker.servfailsChannel = pipelineFinisher.servfailsChannel
+	connectr.outboundQueryChannel = querier.inboundQueryChannel
+	connectr.failedQueryChannel = pipelineFinisher.servfailsChannel
+	connectr.servfailsChannel = pipelineFinisher.servfailsChannel
 
 	// failed queries get retried by the connectr
-	querierWorker.outboundQueryChannel = pipelineFinisher.inboundQueryChannel
-	querierWorker.failedQueryChannel = connectr.inboundQueryChannel
-	querierWorker.servfailsChannel = pipelineFinisher.servfailsChannel
+	querier.outboundQueryChannel = pipelineFinisher.inboundQueryChannel
+	querier.failedQueryChannel = connectr.inboundQueryChannel
+	querier.servfailsChannel = pipelineFinisher.servfailsChannel
 
 	cancelChannels = []chan bool{
 		// the query handler is going to keep going until the underlying server stops

@@ -29,6 +29,8 @@ ctags:
 
 docker:
 	sudo docker-compose build
+
+dnsperf:
 	sudo docker build -t funkyd/dnsperf -f ./Dockerfile.dnsperf .
 
 unittest: mocks

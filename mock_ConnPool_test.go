@@ -10,11 +10,11 @@ type MockConnPool struct {
 }
 
 // Add provides a mock function with given fields: ce
-func (_m *MockConnPool) Add(ce *ConnEntry) error {
+func (_m *MockConnPool) Add(ce ConnEntry) error {
 	ret := _m.Called(ce)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*ConnEntry) error); ok {
+	if rf, ok := ret.Get(0).(func(ConnEntry) error); ok {
 		r0 = rf(ce)
 	} else {
 		r0 = ret.Error(0)
@@ -29,20 +29,20 @@ func (_m *MockConnPool) AddUpstream(r *Upstream) {
 }
 
 // CloseConnection provides a mock function with given fields: ce
-func (_m *MockConnPool) CloseConnection(ce *ConnEntry) {
+func (_m *MockConnPool) CloseConnection(ce ConnEntry) {
 	_m.Called(ce)
 }
 
 // Get provides a mock function with given fields:
-func (_m *MockConnPool) Get() (*ConnEntry, Upstream) {
+func (_m *MockConnPool) Get() (ConnEntry, Upstream) {
 	ret := _m.Called()
 
-	var r0 *ConnEntry
-	if rf, ok := ret.Get(0).(func() *ConnEntry); ok {
+	var r0 ConnEntry
+	if rf, ok := ret.Get(0).(func() ConnEntry); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*ConnEntry)
+			r0 = ret.Get(0).(ConnEntry)
 		}
 	}
 
@@ -57,15 +57,15 @@ func (_m *MockConnPool) Get() (*ConnEntry, Upstream) {
 }
 
 // NewConnection provides a mock function with given fields: upstream, dialFunc
-func (_m *MockConnPool) NewConnection(upstream Upstream, dialFunc DialFunc) (*ConnEntry, error) {
+func (_m *MockConnPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ConnEntry, error) {
 	ret := _m.Called(upstream, dialFunc)
 
-	var r0 *ConnEntry
-	if rf, ok := ret.Get(0).(func(Upstream, DialFunc) *ConnEntry); ok {
+	var r0 ConnEntry
+	if rf, ok := ret.Get(0).(func(Upstream, DialFunc) ConnEntry); ok {
 		r0 = rf(upstream, dialFunc)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*ConnEntry)
+			r0 = ret.Get(0).(ConnEntry)
 		}
 	}
 

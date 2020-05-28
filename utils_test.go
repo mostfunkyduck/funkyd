@@ -65,10 +65,10 @@ func buildAnswer() (m *dns.Msg) {
 	}
 }
 
-func buildConnEntry() (c *ConnEntry) {
+func buildConnEntry() (c ConnEntry) {
 	s, cl := net.Pipe()
 	s.Close()
-	return &ConnEntry{
+	return &connEntry{
 		Conn: &dns.Conn{
 			Conn: cl,
 		},

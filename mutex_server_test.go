@@ -43,7 +43,7 @@ func TestRecursiveQueryErrors(t *testing.T) {
 		t.Fatalf("could not build test resources: [%v]: %s", server, err)
 	}
 	cl.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(&dns.Msg{}, time.Duration(0), fmt.Errorf("no DNS for you!"))
-	pool.On("Get").Return(&ConnEntry{Conn: &dns.Conn{}}, Upstream{}, nil)
+	pool.On("Get").Return(&connEntry{Conn: &dns.Conn{}}, Upstream{}, nil)
 	pool.On("CloseConnection", mock.Anything).Return(nil)
 	if r, source, err := server.RecursiveQuery("example.com", dns.TypeA); err == nil {
 		t.Fatalf("exchange errors didn't bubble up to the caller r[%v] source[%v]", r, source)

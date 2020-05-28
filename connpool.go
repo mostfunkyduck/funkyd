@@ -13,24 +13,44 @@ import (
 
 type DialFunc func(address string) (*dns.Conn, error)
 
+type ConnEntry interface {
+	// Add an exchange with a duration to this conn entry
+	AddExchange(rtt time.Duration)
+
+	// get the address that this connentry's connection is pointing to
+	GetAddress() string
+
+	// gets the weight of this conn entry, indicating how efficient it is
+	GetWeight() (weight UpstreamWeight)
+
+	// retrieves the underlying DNS connection for this entry
+	GetConn() (*dns.Conn)
+
+	// retrives the underlying upstream for this entry
+	GetUpstream() (upstream *Upstream)
+
+	// Closes the connection stored by this connentry
+	Close()
+}
+
 type ConnPool interface {
 	// Retrieves a new connection from the pool
 	// returns an upstream and a nil connentry if a new
 	// connection must be made
-	Get() (ce *ConnEntry, upstream Upstream)
+	Get() (ce ConnEntry, upstream Upstream)
 
 	// Adds a new connection to the pool
-	Add(ce *ConnEntry) (err error)
+	Add(ce ConnEntry) (err error)
 
 	// Add a new upstream to the pool
 	AddUpstream(r *Upstream)
 
 	// Close a given connection
-	CloseConnection(ce *ConnEntry)
+	CloseConnection(ce ConnEntry)
 
 	// Adds a new connection to the pool targetting a given upstream and using a given dial function to make the connection.
 	// The abstraction of dialFunc is for dependency injection
-	NewConnection(upstream Upstream, dialFunc DialFunc) (ce *ConnEntry, err error)
+	NewConnection(upstream Upstream, dialFunc DialFunc) (ce ConnEntry, err error)
 	// Returns the number of open connections in the pool
 	Size() int
 }
@@ -44,7 +64,7 @@ type connPool struct {
 	// to lock the actual upstreams array.
 	upstreamNames []UpstreamName
 
-	cache map[string][]*ConnEntry
+	cache map[string][]ConnEntry
 	lock  Lock
 }
 
@@ -52,7 +72,7 @@ type CachedConn interface {
 	Close() error
 }
 
-type ConnEntry struct {
+type connEntry struct {
 	// The actual connection
 	Conn CachedConn
 
@@ -72,16 +92,27 @@ type Lock struct {
 }
 
 // Increment the internal counters tracking successful exchanges and durations
-func (c *ConnEntry) AddExchange(rtt time.Duration) {
+func (c connEntry) AddExchange(rtt time.Duration) {
 	c.totalRTT += rtt
 	c.exchanges += 1
 }
 
-func (c *ConnEntry) GetAddress() string {
+func (c connEntry) GetAddress() string {
 	return c.upstream.GetAddress()
 }
 
-func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
+func (c connEntry) Close() {
+	c.Conn.Close()
+}
+
+func (c connEntry) GetConn() (conn *dns.Conn) {
+	return c.Conn.(*dns.Conn)
+}
+
+func (c connEntry) GetUpstream() (upstream *Upstream) {
+	return &c.upstream
+}
+func (ce connEntry) GetWeight() (weight UpstreamWeight) {
 	currentRTT := UpstreamWeight(ce.totalRTT / time.Millisecond)
 	if currentRTT == 0.0 || ce.exchanges == 0 {
 		// this connection hasn't seen any actual connection time, no weight
@@ -105,7 +136,7 @@ func (ce *ConnEntry) GetWeight() (weight UpstreamWeight) {
 
 func NewConnPool() *connPool {
 	return &connPool{
-		cache: make(map[string][]*ConnEntry),
+		cache: make(map[string][]ConnEntry),
 	}
 }
 
@@ -165,7 +196,7 @@ func (c *connPool) sortUpstreams() {
 }
 
 // updates a upstream's weight based on a conn entry being added or closed
-func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
+func (c *connPool) updateUpstream(ce ConnEntry) (err error) {
 	address := ce.GetAddress()
 	// get the actual pointer for this ce's upstream
 	upstream, err := c.getUpstreamByAddress(address)
@@ -173,7 +204,7 @@ func (c *connPool) updateUpstream(ce *ConnEntry) (err error) {
 		return fmt.Errorf("could not add conn entry with address [%s]: %s", address, err.Error())
 	}
 
-	c.weightUpstream(upstream, *ce)
+	c.weightUpstream(upstream, ce)
 
 	c.sortUpstreams()
 	return
@@ -188,16 +219,16 @@ func (c *connPool) closeSlowUpstreams() {
 				// this upstream is way too heavy, and all the previous ones had no connections
 				// close all it's connections and let it cool down until we need it
 				for _, conn := range conns {
-					conn.Conn.Close()
+					conn.Close()
 				}
-				c.cache[each.GetAddress()] = []*ConnEntry{}
+				c.cache[each.GetAddress()] = []ConnEntry{}
 			}
 		}
 	}
 }
 
 // adds a connection to the cache
-func (c *connPool) Add(ce *ConnEntry) (err error) {
+func (c *connPool) Add(ce ConnEntry) (err error) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -219,7 +250,7 @@ func (c *connPool) Add(ce *ConnEntry) (err error) {
 		c.cache[address] = append(c.cache[address], ce)
 	} else {
 		// the max is greater than zero and there's nothing here, so we can just insert
-		c.cache[address] = []*ConnEntry{ce}
+		c.cache[address] = []ConnEntry{ce}
 	}
 	c.closeSlowUpstreams()
 	ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
@@ -227,7 +258,7 @@ func (c *connPool) Add(ce *ConnEntry) (err error) {
 }
 
 // Makes a new connection to a given upstream, wraps the whole thing in conn entry
-func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce *ConnEntry, err error) {
+func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce ConnEntry, err error) {
 	address := upstream.GetAddress()
 	Logger.Log(NewLogMessage(
 		INFO,
@@ -258,7 +289,7 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce *Conn
 			nil,
 		))
 		FailedConnectionsCounter.WithLabelValues(address).Inc()
-		return &ConnEntry{}, err
+		return &connEntry{}, err
 	}
 
 	Logger.Log(NewLogMessage(
@@ -270,14 +301,14 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce *Conn
 		nil,
 	))
 
-	ce = &ConnEntry{Conn: conn, upstream: upstream}
+	ce = &connEntry{Conn: conn, upstream: upstream}
 	ce.AddExchange(dialDuration)
 	return ce, nil
 }
 
 // attempts to retrieve a connection from the most attractive upstream
 // if it doesn't have one, returns an upstream for the caller to connect to
-func (c *connPool) Get() (ce *ConnEntry, upstream Upstream) {
+func (c *connPool) Get() (ce ConnEntry, upstream Upstream) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -297,7 +328,7 @@ func (c *connPool) Get() (ce *ConnEntry, upstream Upstream) {
 		}
 	}
 	// we couldn't find a single connection, tell the caller to make a new one to the best weighted upstream
-	return &ConnEntry{}, upstream
+	return &connEntry{}, upstream
 }
 
 // since this reads all the maps, it needs to make sure there are no concurrent writes
@@ -319,9 +350,9 @@ func (c *connPool) AddUpstream(r *Upstream) {
 	c.upstreams = append(c.upstreams, r)
 }
 
-func (c *connPool) CloseConnection(ce *ConnEntry) {
+func (c *connPool) CloseConnection(ce ConnEntry) {
 	c.Lock()
 	defer c.Unlock()
 	c.updateUpstream(ce)
-	ce.Conn.Close()
+	ce.Close()
 }

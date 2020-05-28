@@ -108,7 +108,7 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 
 func TestIllegalUpstreamAddition(t *testing.T) {
 	pool := buildPool()
-	ce := &ConnEntry{
+	ce := &connEntry{
 		upstream: Upstream{
 			Name: "doesntexist",
 		},
@@ -122,15 +122,15 @@ func TestIllegalUpstreamAddition(t *testing.T) {
 func TestConnectionPoolSize(t *testing.T) {
 	pool := buildPool()
 	max := 10
-	f := func(idx int) *ConnEntry {
+	f := func(idx int) ConnEntry {
 		upstream := Upstream{Name: "example.com", Port: idx}
-		return &ConnEntry{upstream: upstream}
+		return &connEntry{upstream: upstream}
 	}
 	// we want to add distinct entries in different sub-pools, based on the current
 	// implementation which stores connections separately for each host
 	for i := 0; i < max; i++ {
 		ce := f(i)
-		pool.AddUpstream(&ce.upstream)
+		pool.AddUpstream(ce.GetUpstream())
 		for j := 0; j < max; j++ {
 			if err := pool.Add(ce); err != nil {
 				t.Fatalf("tried to add connection [%v] to pool [%v], got potential error [%s]", ce, pool, err)
