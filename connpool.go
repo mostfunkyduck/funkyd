@@ -101,7 +101,7 @@ type Lock struct {
 }
 
 // flag this connentry as having errors
-func (c connEntry) AddError() {
+func (c *connEntry) AddError() {
 	c.error = true
 }
 
@@ -111,14 +111,14 @@ func (c connEntry) Error() bool {
 }
 
 // Increment the internal counters tracking successful exchanges and durations
-func (c connEntry) AddExchange(rtt time.Duration) {
+func (c *connEntry) AddExchange(rtt time.Duration) {
 	// TODO evaluate having multiple timeouts for dialing vs rtt'ing
 	RttTimeout := GetConfiguration().Timeout
 	if RttTimeout == 0 {
 		RttTimeout = 500
 	}
 	// check to see if this exchange took too long
-	if rtt > time.Duration(RttTimeout)*time.Millisecond {
+	if rtt > time.Duration(RttTimeout) * time.Millisecond {
 		// next time around, treat this as a bogus connection
 		c.AddError()
 	}
