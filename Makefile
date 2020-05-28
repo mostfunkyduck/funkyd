@@ -36,15 +36,17 @@ dnsperf:
 unittest: mocks
 	# running unit tests with 1s timeout
 	go test -v -timeout 1s
+
+benchmarks: mocks
 	# running benchmarks with 30s timeout
-	go test -v -timeout 30s -bench=.*
+	go test -v -timeout 30s -bench=.* -run=^$
 
 performancetest: docker
 	sudo docker-compose up -d
 	./testdata/run_dnsperf.sh
 	sudo docker-compose down
 
-test: unittest performancetest
+test: unittest benchmarks performancetest
 
 funkyd: *.go
 	$(eval TAG := $(shell git tag --points-at $(REVISION)))
