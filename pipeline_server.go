@@ -175,16 +175,10 @@ func (c *PipelineConnector) Start() {
 						},
 					})
 					// fail to PipelineFinisher
-					c.Fail(query)
+					go c.Fail(query)
 				}
-				// FIXME there seems to be a case where the PipelineQuerier will be blocked
-				// FIXME on the PipelineConnector accepting whilst the PipelineConnector is blocked
-				// FIXME on the PipelineQuerier rejecting messages
-				// FIXME one possible solution might be to have the PipelineQuerier do connection
-				// FIXME mgm't, essentially collapsing this into that, there'd be more work
-				// FIXME than i want to handle in the PipelineQuerier, but that's better than deadlock
 				// dispatch to PipelineQuerier
-				c.Dispatch(assignedQuery)
+				go c.Dispatch(assignedQuery)
 			case <-c.cancelChannel:
 				logCancellation("PipelineConnector")
 				return
@@ -298,11 +292,11 @@ func (q *PipelineQuerier) Start() {
 						},
 					})
 					// fail to PipelineFinisher
-					q.Fail(query)
+					go q.Fail(query)
 					continue
 				}
 				// dispatch to replier
-				q.Dispatch(qu)
+				go q.Dispatch(qu)
 			}
 		}
 	}()
@@ -339,11 +333,11 @@ func (c *PipelineCacher) Start() {
 				if resp, ok := c.CheckCache(q); ok {
 					q.Reply = resp.Entry.Copy()
 					// pass to PipelineQuerier
-					c.Dispatch(q)
+					go c.Dispatch(q)
 					break
 				}
 				//	pass to PipelineConnector
-				c.Fail(q)
+				go c.Fail(q)
 			case q := <-c.cachingChannel:
 				c.CacheQuery(q)
 				// no need to do anything else
@@ -378,7 +372,7 @@ func (p *PipelineFinisher) Start() {
 				}
 				duration := q.Timer.ObserveDuration()
 				logQuery("servfail", duration, failingQuery.Reply)
-				p.Fail(q)
+				go p.Fail(q)
 			case q := <-p.inboundQueryChannel:
 				if err := q.W.WriteMsg(q.Reply); err != nil {
 					Logger.Log(LogMessage{
@@ -392,7 +386,7 @@ func (p *PipelineFinisher) Start() {
 				}
 				duration := q.Timer.ObserveDuration()
 				logQuery(q.Upstream.GetAddress(), duration, q.Reply)
-				p.Dispatch(q)
+				go p.Dispatch(q)
 			}
 		}
 	}()
