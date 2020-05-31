@@ -280,23 +280,26 @@ func (q *PipelineQuerier) Start() {
 				logCancellation("PipelineQuerier")
 				return
 			case query := <-q.inboundQueryChannel:
-				qu, err := q.Query(query)
-				if err != nil {
-					Logger.Log(LogMessage{
-						Level: ERROR,
-						Context: LogContext{
-							"what":  "error retrieving record for domain",
-							"query": query.Msg.String(),
-							"error": err.Error(),
-							"next":  "failing query",
-						},
-					})
-					// fail to PipelineFinisher
-					go q.Fail(query)
-					continue
-				}
-				// dispatch to replier
-				go q.Dispatch(qu)
+				// run the actual queries in grs to get maximum throughput - nothing in there should cause contention
+				go func() {
+					qu, err := q.Query(query)
+					if err != nil {
+						Logger.Log(LogMessage{
+							Level: ERROR,
+							Context: LogContext{
+								"what":  "error retrieving record for domain",
+								"query": query.Msg.String(),
+								"error": err.Error(),
+								"next":  "failing query",
+							},
+						})
+						// fail to PipelineFinisher
+						q.Fail(query)
+						return
+					}
+					// dispatch to replier
+					q.Dispatch(qu)
+				}()
 			}
 		}
 	}()
