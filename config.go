@@ -92,6 +92,9 @@ type Configuration struct {
 
 	// Whether or not to blackhole all DNS traffic
 	Blackhole bool `json:"blackhole"`
+
+	// Whether or not to use the pipeline server implementation
+	UsePipelineServer bool `json:"use_pipeline_server"`
 }
 
 // this is a pointer so that tests can set variables easily

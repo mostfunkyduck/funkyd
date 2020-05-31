@@ -1,14 +1,8 @@
 package main
 
-// This module handles the local zone file management.
-import (
-	"fmt"
-	"strings"
-	"time"
+// TODO This module handles the local zone file management.
 
-	"github.com/miekg/dns"
-)
-
+/**
 // lifted and modified from cli53 code for this
 // parses out a slice of Records from the contents of a zone file
 // zone: the full text of a bind file
@@ -37,3 +31,4 @@ func ParseZoneFile(zone string) ([]Response, error) {
 
 	return responses, nil
 }
+**/

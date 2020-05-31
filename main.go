@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -75,6 +74,7 @@ func runBlackholeServer() error {
 	}
 }
 
+/**
 func loadLocalZones(server Server) {
 	config := GetConfiguration()
 	// read in zone files, if configured to do so
@@ -93,6 +93,7 @@ func loadLocalZones(server Server) {
 		}
 	}
 }
+**/
 
 // nolint:gochecknoglobals // FIXME
 var servers []*dns.Server = []*dns.Server{}
@@ -144,9 +145,19 @@ func main() {
 	}
 	InitAPI()
 
-	server := NewMutexServer(nil, nil)
+	var server dns.Handler
+	if config.UsePipelineServer {
+		s, _, err := NewPipelineServer(nil, nil)
+		if err != nil {
+			log.Fatalf("could not build pipeline server: %s", err)
+		}
+		server = &s
+	} else {
+		server = NewMutexServer(nil, nil)
+	}
 
-	loadLocalZones(server)
+	// TODO reimplement this
+	// loadLocalZones(server)
 
 	dnsPort := config.DnsPort
 	if dnsPort == 0 {
@@ -154,7 +165,7 @@ func main() {
 	}
 
 	// set up DNS server
-	srvUDP := &dns.Server{Addr: ":" + strconv.Itoa(dnsPort), Net: "udp", MaxTCPQueries: -1, ReusePort: true}
+	srvUDP := &dns.Server{Addr: ":" + strconv.Itoa(dnsPort), Net: "udp", ReusePort: true}
 	srvTCP := &dns.Server{Addr: ":" + strconv.Itoa(dnsPort), Net: "tcp", MaxTCPQueries: -1, ReusePort: true}
 
 	srvUDP.Handler, srvTCP.Handler = server, server

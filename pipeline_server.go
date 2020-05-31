@@ -97,6 +97,9 @@ type PipelineQuerier struct {
 
 	// client to send outbound queries with
 	client Client
+
+	// send messages here to be cached
+	cachingChannel chan Query
 }
 
 type PipelineFinisher struct {
@@ -249,12 +252,8 @@ func (q *PipelineQuerier) Query(qu Query) (query Query, err error) {
 	query = qu
 	RecursiveQueryCounter.Inc()
 
-	m := &dns.Msg{}
-	m.SetQuestion(query.Msg.Question[0].Name, query.Msg.Question[0].Qtype)
-	m.RecursionDesired = true
-
 	var reply *dns.Msg
-	if reply, err = attemptExchange(m, query.Conn, q.client); err != nil {
+	if reply, err = attemptExchange(qu.Msg, query.Conn, q.client); err != nil {
 		Logger.Log(NewLogMessage(
 			WARNING,
 			LogContext{
@@ -265,10 +264,11 @@ func (q *PipelineQuerier) Query(qu Query) (query Query, err error) {
 		// this connection is tainted, try another one
 		query.ConnectionRetries++
 		// bail
-		return query, fmt.Errorf("failed to exchange query %s: %s", m.String(), err)
+		return query, fmt.Errorf("failed to exchange query %s: %s", qu.Msg.String(), err)
 	}
 
 	query.Reply = reply.Copy()
+	query.Reply.SetReply(qu.Msg)
 	return query, nil
 }
 
@@ -298,7 +298,8 @@ func (q *PipelineQuerier) Start() {
 						return
 					}
 					// dispatch to replier
-					q.Dispatch(qu)
+					go q.Dispatch(qu)
+					go func() { q.cachingChannel <- qu }()
 				}()
 			}
 		}
@@ -320,7 +321,7 @@ func (c *PipelineCacher) CheckCache(q Query) (result Response, ok bool) {
 func (c *PipelineCacher) CacheQuery(q Query) {
 	question := q.Msg.Question[0]
 	r := Response{
-		Entry:        *q.Msg,
+		Entry:        *q.Reply,
 		CreationTime: time.Now(),
 		Name:         question.Name,
 		Qtype:        question.Qtype,
@@ -335,6 +336,7 @@ func (c *PipelineCacher) Start() {
 			case q := <-c.inboundQueryChannel:
 				if resp, ok := c.CheckCache(q); ok {
 					q.Reply = resp.Entry.Copy()
+					q.Reply.SetRcode(q.Msg, resp.Entry.Rcode)
 					// pass to PipelineQuerier
 					go c.Dispatch(q)
 					break
@@ -389,7 +391,10 @@ func (p *PipelineFinisher) Start() {
 				}
 				duration := q.Timer.ObserveDuration()
 				logQuery(q.Upstream.GetAddress(), duration, q.Reply)
-				go p.Dispatch(q)
+				if q.Conn != nil {
+					// dispatch for readdition into the conn pool
+					go p.Dispatch(q)
+				}
 			}
 		}
 	}()
@@ -500,6 +505,7 @@ func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cance
 
 	// failed queries get retried by the connectr
 	querier.outboundQueryChannel = pipelineFinisher.inboundQueryChannel
+	querier.cachingChannel = cachr.cachingChannel
 	querier.failedQueryChannel = connectr.inboundQueryChannel
 	querier.servfailsChannel = pipelineFinisher.servfailsChannel
 
@@ -513,6 +519,7 @@ func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cance
 		cacheWorker.cancelChannel,
 		connectorWorker.cancelChannel,
 		querierWorker.cancelChannel,
+		pipelineFinisher.cancelChannel,
 	}
 	return *queryHandler, cancelChannels, nil
 }
