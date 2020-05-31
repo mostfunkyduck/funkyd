@@ -56,8 +56,13 @@ type Server interface {
 }
 
 func processResults(r dns.Msg, domain string, rrtype uint16) Response {
+	ttl := uint32(0)
+	if len(r.Answer) > 0 {
+		ttl = r.Answer[0].Header().Ttl
+	}
+
 	return Response{
-		Ttl:          time.Duration(r.Answer[0].Header().Ttl) * time.Second,
+		Ttl:          time.Duration(ttl) * time.Second,
 		Entry:        r,
 		CreationTime: time.Now(),
 		Name:         domain,
