@@ -320,8 +320,12 @@ func (c *PipelineCacher) CheckCache(q Query) (result Response, ok bool) {
 // adds a connection to the cache.
 func (c *PipelineCacher) CacheQuery(q Query) {
 	question := q.Msg.Question[0]
+	ttl := uint32(0)
+	if len(q.Reply.Answer) > 0 {
+		ttl = q.Reply.Answer[0].Header().Ttl
+	}
 	r := Response{
-		Ttl:          time.Duration(q.Reply.Answer[0].Header().Ttl) * time.Second,
+		Ttl:          time.Duration(ttl) * time.Second,
 		Entry:        *q.Reply,
 		CreationTime: time.Now(),
 		Name:         question.Name,
