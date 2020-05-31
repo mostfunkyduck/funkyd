@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -106,7 +107,8 @@ func TestCacher(t *testing.T) {
 	}
 
 	qu = Query{
-		Msg: msg,
+		Msg:   msg,
+		Reply: msg,
 	}
 
 	c.CacheQuery(qu)
@@ -181,8 +183,8 @@ func TestQuerier(t *testing.T) {
 		t.Fatalf("error during query: %s", err.Error())
 	}
 
-	if qu1.Reply.String() != reply.String() {
-		t.Fatalf("got incorrect reply to dns query: [%v] != [%v]", qu1.Reply, reply)
+	if !reflect.DeepEqual(qu1.Reply.Question, qu.Msg.Question) {
+		t.Fatalf("got incorrect reply to dns query: [%v] is not a response to [%v]", qu1.Reply, qu.Msg)
 	}
 }
 
@@ -233,7 +235,7 @@ func TestQuerierStart(t *testing.T) {
 
 	q.inboundQueryChannel <- qu
 	outcome := <-q.outboundQueryChannel
-	if outcome.Reply.String() != reply.String() {
+	if !reflect.DeepEqual(outcome.Reply.Answer, reply.Answer) {
 		t.Fatalf("got wrong reply from querier: outcome [%v] reply [%v]", outcome, reply)
 	}
 
@@ -252,6 +254,7 @@ func TestFinisherStart(_ *testing.T) {
 	pw.outboundQueryChannel = make(chan Query)
 	pw.failedQueryChannel = make(chan Query)
 	p.servfailsChannel = make(chan Query)
+
 	p.Start()
 	defer func() { p.cancelChannel <- true }()
 	writer := &MockResponseWriter{}
@@ -259,6 +262,7 @@ func TestFinisherStart(_ *testing.T) {
 	writer.On("WriteMsg", mock.Anything).Return(nil)
 	qdt.On("ObserveDuration").Return(time.Duration(100))
 	q := Query{
+		Conn:  &MockConnEntry{},
 		W:     writer,
 		Msg:   &dns.Msg{},
 		Reply: &dns.Msg{},

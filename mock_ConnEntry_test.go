@@ -14,11 +14,6 @@ type MockConnEntry struct {
 	mock.Mock
 }
 
-// AddError provides a mock function with given fields:
-func (_m *MockConnEntry) AddError() {
-	_m.Called()
-}
-
 // AddExchange provides a mock function with given fields: rtt
 func (_m *MockConnEntry) AddExchange(rtt time.Duration) {
 	_m.Called(rtt)
@@ -29,18 +24,9 @@ func (_m *MockConnEntry) Close() {
 	_m.Called()
 }
 
-// Error provides a mock function with given fields:
-func (_m *MockConnEntry) Error() bool {
-	ret := _m.Called()
-
-	var r0 bool
-	if rf, ok := ret.Get(0).(func() bool); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	return r0
+// CoolUpstream provides a mock function with given fields:
+func (_m *MockConnEntry) CoolUpstream() {
+	_m.Called()
 }
 
 // GetAddress provides a mock function with given fields:
@@ -52,6 +38,20 @@ func (_m *MockConnEntry) GetAddress() string {
 		r0 = rf()
 	} else {
 		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// GetAverageLatency provides a mock function with given fields:
+func (_m *MockConnEntry) GetAverageLatency() time.Duration {
+	ret := _m.Called()
+
+	var r0 time.Duration
+	if rf, ok := ret.Get(0).(func() time.Duration); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(time.Duration)
 	}
 
 	return r0

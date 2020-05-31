@@ -140,7 +140,7 @@ type Response struct {
 	Entry dns.Msg
 
 	// TTL
-	//nolint
+	// nolint:stylecheck // miekg/dns uses 'Ttl', might as well be consistent
 	Ttl time.Duration
 
 	// Query type
@@ -157,54 +157,13 @@ func (r Response) FormatKey() string {
 
 func (r Response) IsExpired(rr dns.RR) bool {
 	expired := r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
-
-	Logger.Log(NewLogMessage(
-		DEBUG,
-		LogContext{
-			"what":         "checking if record has expired",
-			"ttl":          fmt.Sprintf("%d", rr.Header().Ttl),
-			"record_key":   r.FormatKey(),
-			"creationtime": r.CreationTime.String(),
-			"expired":      fmt.Sprintf("%t", expired),
-		},
-		nil,
-	))
-
 	return expired
 }
 
-func (r Response) GetExpirationTimeFromRR(rr dns.RR) time.Time {
-	return r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second)
-}
-
-// Updates the TTL on the cached record so that the client gets the accurate number.
-func (r Response) updateTTL(rr dns.RR) {
-	if r.IsExpired(rr) {
-		Logger.Log(NewLogMessage(
-			DEBUG,
-			LogContext{
-				"what": Logger.Sprintf(DEBUG, "attempted to update TTL on rr [%v] using response [%v]", rr, r),
-			},
-			nil,
-		))
-
-		return
-	}
-
-	expirationTime := r.GetExpirationTimeFromRR(rr)
-	TTL := time.Until(expirationTime).Seconds()
-	castTTL := uint32(TTL)
-
-	Logger.Log(NewLogMessage(
-		DEBUG,
-		LogContext{
-			"what": "updating cached TTL",
-			"ttl":  string(castTTL),
-		},
-		func() string { return fmt.Sprintf("rr [%v] ttl [%f] casted ttl [%d]", rr, TTL, castTTL) },
-	))
-
-	rr.Header().Ttl = uint32(TTL)
+func (r Response) getTTL() (ttl uint32) {
+	expirationTime := r.CreationTime.Add(r.Ttl)
+	ttl = uint32(time.Until(expirationTime).Seconds())
+	return
 }
 
 // Retrieves cache size.
@@ -254,18 +213,7 @@ func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 	))
 	// there are records for this domain/qtype
 	for _, rec := range response.Entry.Answer {
-		Logger.Log(LogMessage{
-			Level: DEBUG,
-			Context: LogContext{
-				"what":     "evaluating validity of record",
-				"why":      "assembling response to query",
-				"next":     "evaluating TTL in cache",
-				"rec":      Logger.Sprintf(DEBUG, "%v", rec),
-				"response": Logger.Sprintf(DEBUG, "%v", response),
-			},
-		})
-		// make sure the TTL is up to date
-		response.updateTTL(rec)
+		rec.Header().Ttl = response.getTTL()
 		if response.IsExpired(rec) {
 			// There is at least one record in this response that's expired
 			// https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should

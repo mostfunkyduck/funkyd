@@ -48,10 +48,12 @@ func buildRequest() (request *dns.Msg) {
 }
 
 func buildQuery() (q Query) {
+	conn := &MockConnEntry{}
 	writer := &MockResponseWriter{}
 	qdt := &MockQueryDurationTimer{}
 
 	q = Query{
+		Conn:  conn,
 		W:     writer,
 		Msg:   &dns.Msg{},
 		Reply: &dns.Msg{},

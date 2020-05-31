@@ -124,6 +124,9 @@ func (c *connEntry) CoolUpstream() {
 
 // Returns the average latency of this connection in time.Duration, defined as total RTT/exchanges.
 func (c connEntry) GetAverageLatency() time.Duration {
+	if c.exchanges == 0 {
+		return 0
+	}
 	return c.totalRTT / time.Duration(c.exchanges)
 }
 

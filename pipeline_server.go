@@ -344,6 +344,16 @@ func (c *PipelineCacher) Start() {
 				//	pass to PipelineConnector
 				go c.Fail(q)
 			case q := <-c.cachingChannel:
+				if q.Reply == nil {
+					Logger.Log(LogMessage{
+						Level: ERROR,
+						Context: LogContext{
+							"what": "attempted to cache empty reply",
+							"next": "discarding cache request",
+						},
+					})
+					break
+				}
 				c.CacheQuery(q)
 				// no need to do anything else
 			case <-c.cancelChannel:
@@ -447,6 +457,7 @@ func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cance
 	cacheWorker := NewPipelineServerWorker()
 	// the handler passes good queries to the cacher
 	cache := NewCache()
+	cache.StartCleaningCrew()
 
 	cachr := &PipelineCacher{
 		pipelineServerWorker: cacheWorker,
