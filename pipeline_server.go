@@ -299,7 +299,10 @@ func (q *PipelineQuerier) Start() {
 					}
 					// dispatch to replier
 					go q.Dispatch(qu)
-					go func() { q.cachingChannel <- qu }()
+					// if this was a noerror query, cache the reply
+					if qu.Reply.Rcode == 0 {
+						go func() { q.cachingChannel <- qu }()
+					}
 				}()
 			}
 		}
@@ -317,7 +320,7 @@ func (c *PipelineCacher) CheckCache(q Query) (result Response, ok bool) {
 	return c.cache.Get(q.Msg.Question[0].Name, q.Msg.Question[0].Qtype)
 }
 
-// adds a connection to the cache.
+// adds a query to the cache.
 func (c *PipelineCacher) CacheQuery(q Query) {
 	question := q.Msg.Question[0]
 	r := Response{
