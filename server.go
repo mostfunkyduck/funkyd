@@ -57,6 +57,7 @@ type Server interface {
 
 func processResults(r dns.Msg, domain string, rrtype uint16) Response {
 	return Response{
+		Ttl:          time.Duration(r.Answer[0].Header().Ttl) * time.Second,
 		Entry:        r,
 		CreationTime: time.Now(),
 		Name:         domain,

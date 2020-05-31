@@ -113,7 +113,7 @@ func levelToString(level LogLevel) string {
 	case DEBUG:
 		return "DEBUG"
 	}
-	return "UNDEFINED"
+	return ""
 }
 
 // constructor, enforces format.

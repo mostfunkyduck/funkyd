@@ -155,11 +155,13 @@ func (r Response) FormatKey() string {
 	return fmt.Sprintf("%s:%d", r.Name, r.Qtype)
 }
 
-func (r Response) IsExpired(rr dns.RR) bool {
+// Determines if the given rr is expired based on the metadata stored in the response.
+func (r Response) RecordExpired(rr dns.RR) bool {
 	expired := r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
 	return expired
 }
 
+// Returns the TTL for this entry based on when it was initially created.
 func (r Response) getTTL() (ttl uint32) {
 	expirationTime := r.CreationTime.Add(r.Ttl)
 	ttl = uint32(time.Until(expirationTime).Seconds())
@@ -214,7 +216,7 @@ func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 	// there are records for this domain/qtype
 	for _, rec := range response.Entry.Answer {
 		rec.Header().Ttl = response.getTTL()
-		if response.IsExpired(rec) {
+		if response.RecordExpired(rec) {
 			// There is at least one record in this response that's expired
 			// https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should
 			// treat it as if the lowest TTL is the TTL.  A single expiration means that the smallest record is <= its TTL
@@ -314,7 +316,7 @@ func (r *RecordCache) Clean() int {
 			},
 		})
 		for _, record := range response.Entry.Answer {
-			if response.IsExpired(record) {
+			if response.RecordExpired(record) {
 				// CNAME analysis will have to happen here
 				Logger.Log(NewLogMessage(
 					DEBUG,

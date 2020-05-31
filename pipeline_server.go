@@ -321,6 +321,7 @@ func (c *PipelineCacher) CheckCache(q Query) (result Response, ok bool) {
 func (c *PipelineCacher) CacheQuery(q Query) {
 	question := q.Msg.Question[0]
 	r := Response{
+		Ttl:          time.Duration(q.Reply.Answer[0].Header().Ttl) * time.Second,
 		Entry:        *q.Reply,
 		CreationTime: time.Now(),
 		Name:         question.Name,
