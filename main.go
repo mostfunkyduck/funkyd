@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"github.com/miekg/dns"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -13,6 +12,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 var (

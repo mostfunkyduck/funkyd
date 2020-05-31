@@ -6,8 +6,9 @@ package main
 // TODO shoehorn in a real system once i proof-of-concept this one
 import (
 	"fmt"
-	"github.com/miekg/dns"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 type Cache interface {

@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/google/go-cmp/cmp"
-	"github.com/miekg/dns"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/miekg/dns"
 )
 
 func setupCache() (rc *RecordCache, err error) {

@@ -7,10 +7,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"runtime"
+
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/semaphore"
-	"runtime"
 )
 
 type MutexServer struct {

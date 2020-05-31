@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/miekg/dns"
-	"github.com/stretchr/testify/mock"
 	"testing"
 	"time"
+
+	"github.com/miekg/dns"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestQueryHandler(t *testing.T) {

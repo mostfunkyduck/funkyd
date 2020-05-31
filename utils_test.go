@@ -3,9 +3,10 @@ package main
 // General utilites
 import (
 	"fmt"
-	"github.com/miekg/dns"
 	"net"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 func UpstreamTestingDialer(upstream Upstream) func(addr string) (conn *dns.Conn, err error) {

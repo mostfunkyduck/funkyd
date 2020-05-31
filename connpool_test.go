@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/miekg/dns"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 func buildPool() ConnPool {

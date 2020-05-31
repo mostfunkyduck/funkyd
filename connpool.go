@@ -4,11 +4,12 @@ package main
 // prioritizes which upstreams get connections and which don't
 import (
 	"fmt"
-	"github.com/miekg/dns"
-	"github.com/prometheus/client_golang/prometheus"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type DialFunc func(address string) (*dns.Conn, error)

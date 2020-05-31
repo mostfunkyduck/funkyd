@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
-	"time"
 )
 
 // Basic functions for a pipeline worker

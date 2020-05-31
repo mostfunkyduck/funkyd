@@ -5,9 +5,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 func handleError(w http.ResponseWriter, err error, code int) {

@@ -1,10 +1,11 @@
 package main
 
 import (
-	"github.com/miekg/dns"
-	"github.com/stretchr/testify/mock"
 	"net"
 	"time"
+
+	"github.com/miekg/dns"
+	"github.com/stretchr/testify/mock"
 )
 
 type StubResponseWriter struct {

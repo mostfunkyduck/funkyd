@@ -4,14 +4,15 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/miekg/dns"
-	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/sys/unix"
 	"log"
 	"net"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sys/unix"
 )
 
 // making this to support dependency injection into the server

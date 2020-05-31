@@ -3,9 +3,10 @@ package main
 // This module handles the local zone file management.
 import (
 	"fmt"
-	"github.com/miekg/dns"
 	"strings"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 // lifted and modified from cli53 code for this
