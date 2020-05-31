@@ -27,6 +27,11 @@ type tlsConfig struct {
 }
 
 type Configuration struct {
+
+	// When the average RTT of a connection exceeds this limit, it will be closed
+	// and the upstream on the other end will be cooled
+	SlowConnectionThreshold int
+
 	// how long to cool upstreams down for if they start throwing errors
 	// cooling upstreams will only be used if no other options are available
 	// the 0-value equates to 500 ms

@@ -21,6 +21,9 @@ type ConnEntry interface {
 	// get the address that this connentry's connection is pointing to
 	GetAddress() string
 
+	// returns the average latency of this connection as a time.Duration
+	GetAverageLatency() time.Duration
+
 	// gets the weight of this conn entry, indicating how efficient it is
 	GetWeight() (weight UpstreamWeight)
 
@@ -33,11 +36,8 @@ type ConnEntry interface {
 	// Closes the connection stored by this connentry
 	Close()
 
-	// Tells the conn entry to track a new error
-	AddError()
-
-	// Determines if the conn entry has seen any errors
-	Error() bool
+	// indicates that when this connection closes, it should cool the upstream
+	CoolUpstream()
 }
 
 type ConnPool interface {
@@ -88,37 +88,16 @@ type connEntry struct {
 	// The total exchanges for this connection
 	exchanges int
 
-	// whether this connection hit an error
-	error bool
+	// whether the upstream for this connection should be cooled when the connection closes
+	coolUpstream bool
 }
 
 type Lock struct {
 	sync.RWMutex
 }
 
-// flag this connentry as having errors.
-func (c *connEntry) AddError() {
-	c.error = true
-}
-
-// retrieves error status.
-func (c connEntry) Error() bool {
-	return c.error
-}
-
 // Increment the internal counters tracking successful exchanges and durations.
 func (c *connEntry) AddExchange(rtt time.Duration) {
-	// TODO evaluate having multiple timeouts for dialing vs rtt'ing
-	RttTimeout := GetConfiguration().Timeout
-	if RttTimeout == 0 {
-		RttTimeout = 500
-	}
-	// check to see if this exchange took too long
-	if rtt > RttTimeout*time.Millisecond {
-		// next time around, treat this as a bogus connection
-		c.AddError()
-	}
-
 	c.totalRTT += rtt
 	c.exchanges += 1
 }
@@ -138,6 +117,16 @@ func (c connEntry) GetConn() (conn *dns.Conn) {
 func (c connEntry) GetUpstream() (upstream *Upstream) {
 	return &c.upstream
 }
+
+func (c *connEntry) CoolUpstream() {
+	c.coolUpstream = true
+}
+
+// Returns the average latency of this connection in time.Duration, defined as total RTT/exchanges.
+func (c connEntry) GetAverageLatency() time.Duration {
+	return c.totalRTT / time.Duration(c.exchanges)
+}
+
 func (c connEntry) GetWeight() (weight UpstreamWeight) {
 	if c.totalRTT == 0 || c.exchanges == 0 {
 		// this connection hasn't seen any actual connection time, no weight
@@ -145,17 +134,6 @@ func (c connEntry) GetWeight() (weight UpstreamWeight) {
 	} else {
 		weight = UpstreamWeight(c.totalRTT/time.Millisecond) / UpstreamWeight(c.exchanges)
 	}
-	Logger.Log(NewLogMessage(
-		DEBUG,
-		LogContext{
-			"what":               "setting weight on connection",
-			"connection_address": c.GetAddress(),
-			"currentRTT":         c.totalRTT.String(),
-			"exchanges":          fmt.Sprintf("%d", c.exchanges),
-			"new_weight":         fmt.Sprintf("%f", weight),
-		},
-		func() string { return fmt.Sprintf("upstream [%v] connection [%v]", c.upstream, c) },
-	))
 	return
 }
 
@@ -274,16 +252,20 @@ func (c *connPool) updateUpstream(ce ConnEntry) (err error) {
 		c.weightUpstream(upstream, ce)
 	}
 
+	timeout := GetConfiguration().SlowConnectionThreshold
+	if timeout == 0 {
+		timeout = 500
+	}
+
+	// check to see if this exchange took too long
 	errorString := ""
-	if upstream.IsCooling() {
-		errorString = "cooling"
-	}
-
-	if ce.Error() {
+	avgRTT := ce.GetAverageLatency()
+	if avgRTT > time.Duration(timeout)*time.Millisecond {
 		c.coolAndPurgeUpstream(upstream)
-		errorString += " connection"
+		errorString += "exceeded timeout, started cooling"
 	}
 
+	// now that the upstream is weighted, sort it
 	c.sortUpstreams()
 	c.updateUpstreamTelemetry(*upstream, errorString)
 	return nil
@@ -336,7 +318,7 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce ConnE
 	conn, err := dialFunc(address)
 	dialDuration := tlsTimer.ObserveDuration()
 	if err != nil {
-		// errors! better cool this upstream
+		// errors! better cool this upstream (TODO find a way to have this share code with regular conn closing)
 		c.Lock()
 		defer c.Unlock()
 

@@ -102,18 +102,11 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce ConnEntry, reply *dns.Msg,
 	}
 	reply, err = attemptExchange(m, ce, s.dnsClient)
 	if err != nil {
-		/**
-			Not doing this, treating EOF errors as a sign that the server wants us to stfu
-		// a feeble attempt to filter out errors that are just the server cleaning up
-		// resources
-		if err.Error() != "EOF" {
-			ce.AddError()
-		}
-		**/
-		ce.AddError()
+		ce.CoolUpstream()
 		s.connPool.CloseConnection(ce)
 		address := ce.GetAddress()
 		UpstreamErrorsCounter.WithLabelValues(address).Inc()
+
 		Logger.Log(LogMessage{
 			Level: DEBUG,
 			Context: LogContext{
