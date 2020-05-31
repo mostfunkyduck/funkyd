@@ -43,6 +43,7 @@ func TestConnectorReuseConn(t *testing.T) {
 	}
 
 	if qu1.Conn == nil {
+		// nolint:lll
 		t.Fatalf("successful return from PipelineConnector.AssignConnection didn't attach a conn to the query struct: [%v]", qu1)
 	}
 }
@@ -91,10 +92,7 @@ func TestConnectorNewConn(t *testing.T) {
 
 func TestCacher(t *testing.T) {
 	pw := NewPipelineServerWorker()
-	cache, err := NewCache()
-	if err != nil {
-		t.Fatalf("couldn't do cache: %s", err)
-	}
+	cache := NewCache()
 
 	c := &PipelineCacher{
 		pipelineServerWorker: pw,
@@ -170,6 +168,7 @@ func TestQuerier(t *testing.T) {
 		Conn: testConnEntry,
 		Msg: &dns.Msg{
 			Question: []dns.Question{
+				// nolint:gofmt
 				dns.Question{
 					Name:  "example.com",
 					Qtype: 123,
@@ -185,7 +184,6 @@ func TestQuerier(t *testing.T) {
 	if qu1.Reply.String() != reply.String() {
 		t.Fatalf("got incorrect reply to dns query: [%v] != [%v]", qu1.Reply, reply)
 	}
-
 }
 
 func TestQuerierStart(t *testing.T) {
@@ -201,7 +199,12 @@ func TestQuerierStart(t *testing.T) {
 		},
 	}
 	mockClient.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(1), nil).Once()
-	mockClient.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(reply, time.Duration(1), fmt.Errorf("blah blah blah")).Once()
+	mockClient.On("ExchangeWithConn",
+		mock.Anything,
+		mock.Anything).Return(reply,
+		time.Duration(1),
+		fmt.Errorf("blah blah blah"),
+	).Once()
 
 	q := PipelineQuerier{
 		pipelineServerWorker: pw,
@@ -219,6 +222,7 @@ func TestQuerierStart(t *testing.T) {
 		Conn: testConnEntry,
 		Msg: &dns.Msg{
 			Question: []dns.Question{
+				// nolint:gofmt
 				dns.Question{
 					Name:  "example.com",
 					Qtype: 123,
@@ -237,7 +241,9 @@ func TestQuerierStart(t *testing.T) {
 	<-q.failedQueryChannel
 }
 
-func TestFinisherStart(t *testing.T) {
+// testing object is not used here because the completion of the test
+// indicates that the flows being tested are functional.
+func TestFinisherStart(_ *testing.T) {
 	pw := NewPipelineServerWorker()
 	p := PipelineFinisher{
 		pipelineServerWorker: pw,
@@ -265,7 +271,8 @@ func TestFinisherStart(t *testing.T) {
 	<-p.failedQueryChannel
 }
 
-func TestFinisherStartErrors(t *testing.T) {
+// this test also doesn't need to call explicit assertions, see above comment.
+func TestFinisherStartErrors(_ *testing.T) {
 	pw := NewPipelineServerWorker()
 	p := PipelineFinisher{
 		pipelineServerWorker: pw,

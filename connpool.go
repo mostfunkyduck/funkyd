@@ -1,7 +1,7 @@
 package main
 
 // Pools connections to upstream servers, does high level lifecycle management and
-// prioritizes which upstreams get connections and which don't
+// prioritizes which upstreams get connections and which don't.
 import (
 	"fmt"
 	"sort"
@@ -55,7 +55,8 @@ type ConnPool interface {
 	// Close a given connection
 	CloseConnection(ce ConnEntry)
 
-	// Adds a new connection to the pool targetting a given upstream and using a given dial function to make the connection.
+	// Adds a new connection to the pool targeting a given upstream and using a given dial function
+	// to make the connection.
 	// The abstraction of dialFunc is for dependency injection
 	NewConnection(upstream Upstream, dialFunc DialFunc) (ce ConnEntry, err error)
 	// Returns the number of open connections in the pool
@@ -65,11 +66,6 @@ type ConnPool interface {
 type connPool struct {
 	// List of actual upstream structs
 	upstreams []*Upstream
-
-	// List of upstream names.  This is kept separate so that callers
-	// can iterate through the upstreams list by name without having
-	// to lock the actual upstreams array.
-	upstreamNames []UpstreamName
 
 	cache map[string][]ConnEntry
 	lock  Lock
@@ -98,20 +94,19 @@ type connEntry struct {
 
 type Lock struct {
 	sync.RWMutex
-	locklevel int
 }
 
-// flag this connentry as having errors
+// flag this connentry as having errors.
 func (c *connEntry) AddError() {
 	c.error = true
 }
 
-// retrieves error status
+// retrieves error status.
 func (c connEntry) Error() bool {
 	return c.error
 }
 
-// Increment the internal counters tracking successful exchanges and durations
+// Increment the internal counters tracking successful exchanges and durations.
 func (c *connEntry) AddExchange(rtt time.Duration) {
 	// TODO evaluate having multiple timeouts for dialing vs rtt'ing
 	RttTimeout := GetConfiguration().Timeout
@@ -119,7 +114,7 @@ func (c *connEntry) AddExchange(rtt time.Duration) {
 		RttTimeout = 500
 	}
 	// check to see if this exchange took too long
-	if rtt > time.Duration(RttTimeout)*time.Millisecond {
+	if rtt > RttTimeout*time.Millisecond {
 		// next time around, treat this as a bogus connection
 		c.AddError()
 	}
@@ -143,23 +138,23 @@ func (c connEntry) GetConn() (conn *dns.Conn) {
 func (c connEntry) GetUpstream() (upstream *Upstream) {
 	return &c.upstream
 }
-func (ce connEntry) GetWeight() (weight UpstreamWeight) {
-	if ce.totalRTT == 0 || ce.exchanges == 0 {
+func (c connEntry) GetWeight() (weight UpstreamWeight) {
+	if c.totalRTT == 0 || c.exchanges == 0 {
 		// this connection hasn't seen any actual connection time, no weight
 		weight = 0
 	} else {
-		weight = UpstreamWeight(ce.totalRTT/time.Millisecond) / UpstreamWeight(ce.exchanges)
+		weight = UpstreamWeight(c.totalRTT/time.Millisecond) / UpstreamWeight(c.exchanges)
 	}
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
 			"what":               "setting weight on connection",
-			"connection_address": ce.GetAddress(),
-			"currentRTT":         fmt.Sprintf("%s", ce.totalRTT),
-			"exchanges":          fmt.Sprintf("%d", ce.exchanges),
+			"connection_address": c.GetAddress(),
+			"currentRTT":         c.totalRTT.String(),
+			"exchanges":          fmt.Sprintf("%d", c.exchanges),
 			"new_weight":         fmt.Sprintf("%f", weight),
 		},
-		func() string { return fmt.Sprintf("upstream [%v] connection [%v]", ce.upstream, ce) },
+		func() string { return fmt.Sprintf("upstream [%v] connection [%v]", c.upstream, c) },
 	))
 	return
 }
@@ -179,7 +174,7 @@ func (c *connPool) Unlock() {
 }
 
 // Retrieves a given upstream based on its address.  This is used to avoid excessive
-// locking while passing around upstreams
+// locking while passing around upstreams.
 func (c *connPool) getUpstreamByAddress(address string) (upstream *Upstream, err error) {
 	// technically not the fastest way to do this, but the list of upstreams shouldn't be big enough for it to matter
 	for _, upstream := range c.upstreams {
@@ -191,18 +186,17 @@ func (c *connPool) getUpstreamByAddress(address string) (upstream *Upstream, err
 }
 
 // WARNING: this function is not reentrant, it is meant to be called internally
-// when the connection pool is already locked and needs to update its upstream weights
+// when the connection pool is already locked and needs to update its upstream weights.
 func (c *connPool) weightUpstream(upstream *Upstream, ce ConnEntry) {
 	// the upstream weight will be the result of the most recent connection:
 	// we want to prefer the upstream with the fastest connections and
 	// ditch them when they start to slow down
 	upstream.SetWeight(ce.GetWeight())
-
 }
 
 // Will select the lowest weighted cached connection
 // falling back to the lowest weighted upstream if none exist
-// upstreams that are cooling will be ignored
+// upstreams that are cooling will be ignored.
 func (c *connPool) getBestUpstream() (upstream Upstream) {
 	// get the first upstream with connections, default to the 0th connection on the list
 	// iterate through in order; this list is sorted based on weight
@@ -211,6 +205,7 @@ func (c *connPool) getBestUpstream() (upstream Upstream) {
 
 	// goal: find the highest lowest weighted upstream with connections
 	for _, each := range c.upstreams {
+		// nolint
 		if conns, ok := c.cache[each.GetAddress()]; ok {
 			// should this upstream be taking connections?
 			if !each.IsCooling() {
@@ -239,7 +234,7 @@ func (c *connPool) getBestUpstream() (upstream Upstream) {
 	return *c.upstreams[0]
 }
 
-// arranges the upstreams based on weight
+// arranges the upstreams based on weight.
 func (c *connPool) sortUpstreams() {
 	sort.Slice(c.upstreams, func(i, j int) bool {
 		return c.upstreams[i].GetWeight() < c.upstreams[j].GetWeight()
@@ -256,12 +251,12 @@ func (c *connPool) updateUpstreamTelemetry(u Upstream, errorString string) {
 		wut.Hour(),
 		wut.Minute(),
 		wut.Second(),
-		time.Now().Sub(wut),
+		time.Since(wut),
 	)
 	UpstreamWeightGauge.WithLabelValues(u.GetAddress(), errorString, coolingString).Set(float64(u.GetWeight()))
 }
 
-// updates a upstream's weight based on a conn entry being added or closed
+// updates a upstream's weight based on a conn entry being added or closed.
 func (c *connPool) updateUpstream(ce ConnEntry) (err error) {
 	address := ce.GetAddress()
 	// get the actual pointer for this ce's upstream
@@ -291,7 +286,7 @@ func (c *connPool) updateUpstream(ce ConnEntry) (err error) {
 	return nil
 }
 
-// adds a connection to the cache
+// adds a connection to the cache.
 func (c *connPool) Add(ce ConnEntry) (err error) {
 	c.Lock()
 	defer c.Unlock()
@@ -310,18 +305,13 @@ func (c *connPool) Add(ce ConnEntry) (err error) {
 		func() string { return fmt.Sprintf("connection entry [%v]", ce) },
 	))
 
-	if _, ok := c.cache[address]; ok {
-		c.cache[address] = append(c.cache[address], ce)
-	} else {
-		// the max is greater than zero and there's nothing here, so we can just insert
-		c.cache[address] = []ConnEntry{ce}
-	}
+	c.cache[address] = append(c.cache[address], ce)
 
 	ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
 	return
 }
 
-// Makes a new connection to a given upstream, wraps the whole thing in conn entry
+// Makes a new connection to a given upstream, wraps the whole thing in conn entry.
 func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce ConnEntry, err error) {
 	address := upstream.GetAddress()
 	Logger.Log(NewLogMessage(
@@ -374,7 +364,7 @@ func (c *connPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce ConnE
 }
 
 // attempts to retrieve a connection from the most attractive upstream
-// if it doesn't have one, returns an upstream for the caller to connect to
+// if it doesn't have one, returns an upstream for the caller to connect to.
 func (c *connPool) Get() (ce ConnEntry, upstream Upstream) {
 	c.Lock()
 	defer c.Unlock()
@@ -386,33 +376,30 @@ func (c *connPool) Get() (ce ConnEntry, upstream Upstream) {
 
 	// Check for an existing connection
 	if conns, ok := c.cache[address]; ok && len(conns) > 0 {
-		for i := 0; i < len(conns); i++ {
-			j := i + 1
-			// pop off a connection and return it
-			ce, c.cache[address] = conns[i], conns[j:]
-			ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
-			return ce, Upstream{}
-		}
+		// pop off a connection and return it
+		ce, c.cache[address] = conns[0], conns[1:]
+		ConnPoolSizeGauge.WithLabelValues(address).Set(float64(len(c.cache[address])))
+		return ce, Upstream{}
 	}
 	// we couldn't find a single connection, tell the caller to make a new one to the best weighted upstream
 	return &connEntry{}, upstream
 }
 
 // since this reads all the maps, it needs to make sure there are no concurrent writes
-// caveat emptor
+// caveat emptor.
 func (c *connPool) Size() int {
 	c.Lock()
 	defer c.Unlock()
 
 	size := 0
 	for _, v := range c.cache {
-		size = size + len(v)
+		size += len(v)
 	}
 	return size
 }
 
 // maintains the internal list of upstreams that this connection pool
-// will attempt to connect to
+// will attempt to connect to.
 func (c *connPool) AddUpstream(r *Upstream) {
 	c.upstreams = append(c.upstreams, r)
 }
@@ -420,18 +407,27 @@ func (c *connPool) AddUpstream(r *Upstream) {
 func (c *connPool) CloseConnection(ce ConnEntry) {
 	c.Lock()
 	defer c.Unlock()
-	c.updateUpstream(ce)
+	if err := c.updateUpstream(ce); err != nil {
+		Logger.Log(LogMessage{
+			Level: ERROR,
+			Context: LogContext{
+				"what":  "error updating upstream during connection closure",
+				"error": err.Error(),
+				"next":  "proceeding to close connection",
+			},
+		})
+	}
 	ce.Close()
 }
 
 // take an upstream pointer (so that we can update the actual record)
 // and tell it to cool down, sever all connections
-// non re-entrant, needs outside locking
+// non re-entrant, needs outside locking.
 func (c *connPool) coolAndPurgeUpstream(upstream *Upstream) {
-	config := GetConfiguration()
-	cooldownPeriod := time.Duration(500) * time.Millisecond
-	if config.CooldownPeriod != 0 {
-		cooldownPeriod = config.CooldownPeriod * time.Millisecond
+	cooldownPeriod := GetConfiguration().CooldownPeriod * time.Millisecond
+	if cooldownPeriod == 0 {
+		// nolint
+		cooldownPeriod = time.Duration(500) * time.Millisecond
 	}
 
 	upstream.Cooldown(cooldownPeriod)
@@ -440,7 +436,7 @@ func (c *connPool) coolAndPurgeUpstream(upstream *Upstream) {
 }
 
 // closes all connections that belong to a given upstream
-// non re-entrant
+// non re-entrant.
 func (c *connPool) purgeUpstream(upstream Upstream) {
 	addr := upstream.GetAddress()
 	if _, ok := c.cache[addr]; ok {

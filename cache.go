@@ -1,9 +1,6 @@
 package main
 
-// TODO: this is now a cache that maps domains to an unsorted collection of records
-// TODO this is probably fine because of how small the records for an average domain are
-// TODO it could be vastly improved, however, i've tried to make the apis flexible so that i can
-// TODO shoehorn in a real system once i proof-of-concept this one
+// Cache module for storing RRs.
 import (
 	"fmt"
 	"time"
@@ -49,7 +46,7 @@ type Cache interface {
 	Evict(resp Response)
 }
 
-// Cleans the cache periodically, evicting all bad responses for the trashman
+// Cleans the cache periodically, evicting all bad responses for the trashman.
 type Janitor interface {
 	// Starts the janitor
 	Start(r *RecordCache)
@@ -65,7 +62,7 @@ type janitor struct {
 // The trashman is in charge of actually removing responses
 // from a given cache.  As removal requires a lock, the trashman
 // interface provides functions for queueing and flushing responses
-// to avoid thrashing
+// to avoid thrashing.
 type TrashMan interface {
 	// Initializes the trashman for a given cache
 	Start(r *RecordCache)
@@ -95,7 +92,7 @@ type TrashMan interface {
 	Paused() bool
 }
 
-// Waits for evicted responses and deletes them out of band
+// Waits for evicted responses and deletes them out of band.
 type trashMan struct {
 	// cancel channel for teardown
 	Cancel chan bool
@@ -119,7 +116,7 @@ type trashMan struct {
 	paused bool
 }
 
-// Core cache struct, manages the actual cache and the cleaning crew
+// Core cache struct, manages the actual cache and the cleaning crew.
 type RecordCache struct {
 	// See janitor struct
 	Janitor Janitor
@@ -134,7 +131,7 @@ type RecordCache struct {
 	lock Lock
 }
 
-// DNS response cache wrapper
+// DNS response cache wrapper.
 type Response struct {
 	// The domain this response is for
 	Name string
@@ -143,6 +140,7 @@ type Response struct {
 	Entry dns.Msg
 
 	// TTL
+	//nolint
 	Ttl time.Duration
 
 	// Query type
@@ -152,24 +150,26 @@ type Response struct {
 	CreationTime time.Time
 }
 
-// constructs a cache key from a response
+// constructs a cache key from a response.
 func (r Response) FormatKey() string {
 	return fmt.Sprintf("%s:%d", r.Name, r.Qtype)
 }
 
-func (response Response) IsExpired(rr dns.RR) bool {
-	expired := response.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
+func (r Response) IsExpired(rr dns.RR) bool {
+	expired := r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second).Before(time.Now())
+
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
 			"what":         "checking if record has expired",
 			"ttl":          fmt.Sprintf("%d", rr.Header().Ttl),
-			"record_key":   response.FormatKey(),
-			"creationtime": fmt.Sprintf("%s", response.CreationTime),
+			"record_key":   r.FormatKey(),
+			"creationtime": r.CreationTime.String(),
 			"expired":      fmt.Sprintf("%t", expired),
 		},
 		nil,
 	))
+
 	return expired
 }
 
@@ -177,8 +177,8 @@ func (r Response) GetExpirationTimeFromRR(rr dns.RR) time.Time {
 	return r.CreationTime.Add(time.Duration(rr.Header().Ttl) * time.Second)
 }
 
-// Updates the TTL on the cached record so that the client gets the accurate number
-func (r Response) updateTtl(rr dns.RR) {
+// Updates the TTL on the cached record so that the client gets the accurate number.
+func (r Response) updateTTL(rr dns.RR) {
 	if r.IsExpired(rr) {
 		Logger.Log(NewLogMessage(
 			DEBUG,
@@ -187,27 +187,32 @@ func (r Response) updateTtl(rr dns.RR) {
 			},
 			nil,
 		))
+
 		return
 	}
+
 	expirationTime := r.GetExpirationTimeFromRR(rr)
-	ttl := expirationTime.Sub(time.Now()).Seconds()
-	castTtl := uint32(ttl)
+	TTL := time.Until(expirationTime).Seconds()
+	castTTL := uint32(TTL)
+
 	Logger.Log(NewLogMessage(
 		DEBUG,
 		LogContext{
 			"what": "updating cached TTL",
-			"ttl":  string(castTtl),
+			"ttl":  string(castTTL),
 		},
-		func() string { return fmt.Sprintf("rr [%v] ttl [%f] casted ttl [%d]", rr, ttl, castTtl) },
+		func() string { return fmt.Sprintf("rr [%v] ttl [%f] casted ttl [%d]", rr, TTL, castTTL) },
 	))
-	rr.Header().Ttl = uint32(ttl)
+
+	rr.Header().Ttl = uint32(TTL)
 }
 
+// Retrieves cache size.
 func (r *RecordCache) Size() int {
 	return len(r.cache)
 }
 
-// can we make it so that this copies the pointers in the response to prevent conflicts
+// Adds to the cache.
 func (r *RecordCache) Add(response Response) {
 	r.Lock()
 	defer r.Unlock()
@@ -215,6 +220,7 @@ func (r *RecordCache) Add(response Response) {
 	CacheSizeGauge.Set(float64(len(r.cache)))
 }
 
+// Retrieve a cached response by name and qtype.
 func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 	// this class will clean the cache as of now, so it needs a write lock
 	r.RLock()
@@ -232,14 +238,9 @@ func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 		Qtype: qtype,
 	}
 	response, ok := r.cache[response.FormatKey()]
+
 	if !ok {
 		Logger.Log(NewLogMessage(INFO, LogContext{"what": "cache miss"}, nil))
-		return Response{}, false
-	}
-
-	// TODO remove this? doesn't seem to be doing anything serious, but who knows?
-	if response.Qtype != qtype {
-		Logger.Log(NewLogMessage(WARNING, LogContext{"what": "mismatched qtype!", "why": fmt.Sprintf("[%d] != [%d]", response.Qtype, qtype)}, nil))
 		return Response{}, false
 	}
 
@@ -253,24 +254,26 @@ func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 	))
 	// there are records for this domain/qtype
 	for _, rec := range response.Entry.Answer {
-		Logger.Log(NewLogMessage(
-			DEBUG,
-			LogContext{
-				"what": "evaluating validity of record",
-				"why":  "assembling response to query",
-				"next": "evaluating TTL in cache",
+		Logger.Log(LogMessage{
+			Level: DEBUG,
+			Context: LogContext{
+				"what":     "evaluating validity of record",
+				"why":      "assembling response to query",
+				"next":     "evaluating TTL in cache",
+				"rec":      Logger.Sprintf(DEBUG, "%v", rec),
+				"response": Logger.Sprintf(DEBUG, "%v", response),
 			},
-			func() string { return fmt.Sprintf("rec [%v] resp [%v]", rec, response) },
-		))
+		})
 		// make sure the TTL is up to date
-		response.updateTtl(rec)
+		response.updateTTL(rec)
 		if response.IsExpired(rec) {
 			// There is at least one record in this response that's expired
 			// https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should
 			// treat it as if the lowest TTL is the TTL.  A single expiration means that the smallest record is <= its TTL
 
-			// TODO differentiate between synthesized CNAMEs and regular records - CNAMES have long TTLs  since they refer to an A
-			// that's holding the actual value, therefore the synthesized A will die before the CNAME itself.
+			// TODO differentiate between synthesized CNAMEs and regular records -
+			// CNAMES have long TTLs  since they refer to an A that's holding the actual value,
+			// therefore the synthesized A will die before the CNAME itself.
 			Logger.Log(NewLogMessage(
 				DEBUG,
 				LogContext{
@@ -294,7 +297,7 @@ func (r *RecordCache) Remove(response Response) {
 	r.remove(response)
 }
 
-// Removes an entire response from the cache, helper function, not reentrant
+// Removes an entire response from the cache, helper function, not reentrant.
 func (r *RecordCache) remove(response Response) {
 	key := response.FormatKey()
 	Logger.Log(NewLogMessage(
@@ -325,7 +328,7 @@ func (r *RecordCache) RUnlock() {
 }
 
 // can't log before lock, the log function iterates through the map
-// which is a nice, delicious race condition with writes
+// which is a nice, delicious race condition with writes.
 func (r *RecordCache) Lock() {
 	r.lock.Lock()
 }
@@ -335,7 +338,7 @@ func (r *RecordCache) Unlock() {
 }
 
 func (r *RecordCache) Clean() int {
-	var records_deleted = 0
+	var recordsDeleted = 0
 	r.Lock()
 	defer r.Unlock()
 
@@ -352,16 +355,16 @@ func (r *RecordCache) Clean() int {
 	// https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should
 	// treat it as if the lowest TTL is the TTL
 	for key, response := range r.cache {
-		Logger.Log(NewLogMessage(
-			DEBUG,
-			LogContext{
-				"what": "examining entry",
-				"key":  key,
-				"why":  "evaluating for cleaning",
-				"next": "updating TTLs in all response records and expiring as needed",
+		Logger.Log(LogMessage{
+			Level: DEBUG,
+			Context: LogContext{
+				"what":     "examining entry",
+				"key":      key,
+				"why":      "evaluating for cleaning",
+				"next":     "updating TTLs in all response records and expiring as needed",
+				"response": Logger.Sprintf(DEBUG, "%v", response),
 			},
-			func() string { return fmt.Sprintf("resp: [%v]", response) },
-		))
+		})
 		for _, record := range response.Entry.Answer {
 			if response.IsExpired(record) {
 				// CNAME analysis will have to happen here
@@ -374,15 +377,15 @@ func (r *RecordCache) Clean() int {
 					nil,
 				))
 				r.Evict(response)
-				records_deleted++
+				recordsDeleted++
 				break
 			}
 		}
 	}
-	return records_deleted
+	return recordsDeleted
 }
 
-// tell the trashman to dispose of this response
+// tell the trashman to dispose of this response.
 func (r *RecordCache) Evict(resp Response) {
 	// need to async or there will be deadlock when a caller is holding
 	// r's lock and this function has to essentially trigger a 'Remove'
@@ -392,11 +395,11 @@ func (r *RecordCache) Evict(resp Response) {
 	}()
 }
 
-func NewCache() (Cache, error) {
+func NewCache() Cache {
 	ret := &RecordCache{
 		cache: make(map[string]Response),
 	}
-	return ret, nil
+	return ret
 }
 
 func (r *RecordCache) StartCleaningCrew() {
@@ -415,7 +418,7 @@ func (r *RecordCache) StartCleaningCrew() {
 	r.TrashMan.Start(r)
 }
 
-// Mainly allowing this so that tests can clean up their grs
+// Mainly allowing this so that tests can clean up their grs.
 func (r *RecordCache) StopCleaningCrew() {
 	r.TrashMan.Stop()
 	r.Janitor.Stop()
@@ -523,7 +526,7 @@ func (j *janitor) Start(r *RecordCache) {
 		if interval == 0 {
 			interval = 1000
 		}
-		t := time.NewTicker(time.Duration(interval) * time.Millisecond)
+		t := time.NewTicker(interval * time.Millisecond)
 		Logger.Log(NewLogMessage(
 			INFO,
 			LogContext{
@@ -534,9 +537,9 @@ func (j *janitor) Start(r *RecordCache) {
 		))
 		for {
 			select {
-			case _ = <-t.C:
+			case <-t.C:
 				r.Clean()
-			case _ = <-j.Cancel:
+			case <-j.Cancel:
 				return
 			}
 		}

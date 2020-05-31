@@ -3,7 +3,7 @@ package main
 // A server/handler implementation that uses traditional mutexes for concurrency
 // eventually, this will have another 'pipeline' implementation to compare performance against
 
-// The mutex server uses traditional concurrency controls
+// The mutex server uses traditional concurrency controls.
 import (
 	"context"
 	"fmt"
@@ -123,7 +123,12 @@ func (s *MutexServer) attemptExchange(m *dns.Msg) (ce ConnEntry, reply *dns.Msg,
 			},
 		})
 		// try the next one
-		return &connEntry{}, &dns.Msg{}, fmt.Errorf("error looking up domain [%s] on server [%s]", m.Question[0].Name, address)
+		return &connEntry{},
+			&dns.Msg{},
+			fmt.Errorf("error looking up domain [%s] on server [%s]",
+				m.Question[0].Name,
+				address,
+			)
 	}
 	return ce, reply, nil
 }
@@ -151,7 +156,9 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Respons
 				LogContext{
 					"what":  "failed exchange with upstreams",
 					"error": err.Error(),
-					"next":  fmt.Sprintf("retrying until config.UpstreamRetries is met. currently on attempt [%d]/[%d]", i, config.UpstreamRetries),
+					"next": fmt.Sprintf("retrying until config.UpstreamRetries is met. currently on attempt [%d]/[%d]",
+						i,
+						config.UpstreamRetries),
 				},
 				nil,
 			))
@@ -189,33 +196,33 @@ func (s *MutexServer) RecursiveQuery(domain string, rrtype uint16) (resp Respons
 	}
 
 	// this one worked, proceeding
-	reply, err := processResults(*r, domain, rrtype)
-	return reply, ce.GetAddress(), err
+	reply := processResults(*r, domain, rrtype)
+	return reply, ce.GetAddress(), nil
 }
 
 // retrieves the record for that domain, either from cache or from
-// a recursive query
+// a recursive query.
 func (s *MutexServer) RetrieveRecords(domain string, rrtype uint16) (Response, string, error) {
 	// First: check caches
 
-	cached_response, ok := s.Cache.Get(domain, rrtype)
+	cachedResponse, ok := s.Cache.Get(domain, rrtype)
 	if ok {
 		CacheHitsCounter.Inc()
-		return cached_response, "cache", nil
+		return cachedResponse, "cache", nil
 	}
 
 	// Now check the hosted cache (stuff in our zone files that we're taking care of)
-	cached_response, ok = s.GetHostedCache().Get(domain, rrtype)
+	cachedResponse, ok = s.GetHostedCache().Get(domain, rrtype)
 	if ok {
 		HostedCacheHitsCounter.Inc()
-		return cached_response, "cache", nil
+		return cachedResponse, "cache", nil
 	}
 
 	// Next , query upstream if there's no cache
 	// TODO only do if requested b/c thats what the spec says IIRC
 	response, source, err := s.RecursiveQuery(domain, rrtype)
 	if err != nil {
-		return response, "", fmt.Errorf("error running recursive query on domain [%s]: %s\n", domain, err)
+		return response, "", fmt.Errorf("error running recursive query on domain [%s]: %s", domain, err)
 	}
 	s.Cache.Add(response)
 	return response, source, nil
@@ -226,7 +233,7 @@ func (s *MutexServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (s *MutexServer) HandleDNS(w ResponseWriter, r *dns.Msg) {
-	TotalDnsQueriesCounter.Inc()
+	TotalDNSQueriesCounter.Inc()
 	// we got this query, but it isn't getting handled until we get the sem
 	QueuedQueriesGauge.Inc()
 	queryTimer := prometheus.NewTimer(QueryTimer)
@@ -275,15 +282,19 @@ func (s *MutexServer) HandleDNS(w ResponseWriter, r *dns.Msg) {
 		reply := response.Entry.Copy()
 		// this calls reply.SetReply() as well, correctly configuring all the metadata
 		reply.SetRcode(r, response.Entry.Rcode)
-		w.WriteMsg(reply)
+		if err := w.WriteMsg(reply); err != nil {
+			Logger.Log(LogMessage{
+				Level: CRITICAL,
+				Context: LogContext{
+					"what":  "failed to write reply to client",
+					"error": err.Error(),
+					"next":  "discarding reply",
+				},
+			})
+		}
 		duration := queryTimer.ObserveDuration()
 		logQuery(source, duration, reply)
 	}()
-	return
-}
-
-func (s *MutexServer) GetDnsClient() Client {
-	return s.dnsClient
 }
 
 func (s *MutexServer) GetHostedCache() Cache {
@@ -294,20 +305,16 @@ func (s *MutexServer) GetConnectionPool() (pool ConnPool) {
 	return s.connPool
 }
 
-// never use this outside of tests, please
+// never use this outside of tests, please.
 func (s *MutexServer) SetConnectionPool(c ConnPool) {
 	s.connPool = c
 }
 
-func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
+func NewMutexServer(cl Client, pool ConnPool) Server {
 	config := GetConfiguration()
 	client := cl
 	if client == nil {
-		var err error
-		client, err = BuildClient()
-		if err != nil {
-			return &MutexServer{}, fmt.Errorf("could not build client [%s]", err.Error())
-		}
+		client = BuildClient()
 	}
 
 	var c int64
@@ -330,16 +337,10 @@ func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 		pool = NewConnPool()
 	}
 
-	newcache, err := NewCache()
-	if err != nil {
-		return nil, fmt.Errorf("couldn't initialize lookup cache: %s", err)
-	}
+	newcache := NewCache()
 	newcache.StartCleaningCrew()
 
-	hostedcache, err := NewCache()
-	if err != nil {
-		return nil, fmt.Errorf("couldn't initialize hosted cache: %s", err)
-	}
+	hostedcache := NewCache()
 
 	base := BaseServer{
 		Cache:       newcache,
@@ -359,5 +360,5 @@ func NewMutexServer(cl Client, pool ConnPool) (Server, error) {
 			Name: name,
 		})
 	}
-	return ret, nil
+	return ret
 }

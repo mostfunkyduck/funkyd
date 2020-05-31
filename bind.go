@@ -18,7 +18,7 @@ func ParseZoneFile(zone string) ([]Response, error) {
 
 	for rr, done := z.Next(); done; rr, done = z.Next() {
 		if err := z.Err(); err != nil {
-			return nil, fmt.Errorf("token error: %s\n", err)
+			return nil, fmt.Errorf("token error: %s", err)
 		}
 
 		// TODO the stuff we host sholdn't follow the same rules, check out the spec

@@ -16,6 +16,7 @@ import (
 	"github.com/miekg/dns"
 )
 
+// nolint:gochecknoglobals
 var (
 	confFile    = flag.String("conf", "", "location of the funkyd configuration file")
 	versionFlag = flag.Bool("version", false, "output version")
@@ -94,18 +95,21 @@ func loadLocalZones(server Server) {
 	}
 }
 
+// nolint:gochecknoglobals // FIXME
 var servers []*dns.Server = []*dns.Server{}
 
 func addServer(s *dns.Server) {
 	servers = append(servers, s)
 }
 
+// nolint:gochecknoglobals // FIXME
 var shutdownMutex *sync.Mutex = &sync.Mutex{}
 
 func Shutdown() {
 	shutdownMutex.Lock()
 	defer shutdownMutex.Unlock()
 	for _, s := range servers {
+		// nolint:mnd
 		ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 		defer cancel()
 		if err := s.ShutdownContext(ctx); err != nil {
@@ -136,20 +140,12 @@ func main() {
 
 	config := GetConfiguration()
 
-	InitLoggers()
-	InitApi()
-
-	server, err := NewMutexServer(nil, nil)
-	if err != nil {
-		Logger.Log(LogMessage{
-			Level: CRITICAL,
-			Context: LogContext{
-				"what":  "could not build mutex server",
-				"error": err.Error(),
-			},
-		})
-		os.Exit(1)
+	if err := InitLoggers(); err != nil {
+		log.Fatalf("could not init loggers: %s", err)
 	}
+	InitAPI()
+
+	server := NewMutexServer(nil, nil)
 
 	loadLocalZones(server)
 

@@ -15,6 +15,23 @@ func (s *BlackholeServer) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	m.SetReply(req)
 
 	m.Extra = make([]dns.RR, 1)
-	m.Extra[0] = &dns.TXT{Hdr: dns.RR_Header{Name: m.Question[0].Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 0}, Txt: []string{"Hello world"}}
-	w.WriteMsg(m)
+	m.Extra[0] = &dns.TXT{
+		Hdr: dns.RR_Header{
+			Name:   m.Question[0].Name,
+			Rrtype: dns.TypeTXT,
+			Class:  dns.ClassINET,
+			Ttl:    0,
+		},
+		Txt: []string{"Hello world"},
+	}
+	err := w.WriteMsg(m)
+	if err != nil {
+		Logger.Log(LogMessage{
+			Level: CRITICAL,
+			Context: LogContext{
+				"what":  "error serving dns in blackhole server",
+				"error": err.Error(),
+			},
+		})
+	}
 }

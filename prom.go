@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// nolint:gochecknoglobals
 var (
 	BuildInfoGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "funkyd_build_info",
@@ -49,7 +50,7 @@ var (
 	},
 		[]string{"destination"},
 	)
-	TotalDnsQueriesCounter = promauto.NewCounter(prometheus.CounterOpts{
+	TotalDNSQueriesCounter = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "funkyd_dns_queries_total",
 		Help: "The total number of handled DNS queries",
 	})
@@ -79,25 +80,24 @@ var (
 		Name: "funkyd_servfails_total",
 		Help: "The total number of times the local server had to throw SERVFAIL",
 	})
-	NXDomainCounter = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "funkyd_nxdomains_total",
-		Help: "total nxdomains",
-	})
 	QueryTimer = promauto.NewSummary(prometheus.SummaryOpts{
-		Name:       "funkyd_query_time",
-		Help:       "query timer",
+		Name: "funkyd_query_time",
+		Help: "query timer",
+		// nolint:gomnd
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	})
 	ExchangeTimer = promauto.NewSummaryVec(prometheus.SummaryOpts{
-		Name:       "funkyd_upstream_exchange_time",
-		Help:       "how long the upstreams took to respond",
+		Name: "funkyd_upstream_exchange_time",
+		Help: "how long the upstreams took to respond",
+		// nolint:gomnd
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	},
 		[]string{"destination"},
 	)
 	TLSTimer = promauto.NewSummaryVec(prometheus.SummaryOpts{
-		Name:       "funkyd_tls_connection_time",
-		Help:       "times the pure connection time of tls",
+		Name: "funkyd_tls_connection_time",
+		Help: "times the pure connection time of tls",
+		// nolint:gomnd
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	},
 		[]string{"destination"},

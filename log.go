@@ -41,16 +41,18 @@ type LogMessage struct {
 	DebugDetails func() string
 }
 
-// 0 value will disable logging
-// the main logger is for diagnostics and debug logging
+// Logger the main logger is for diagnostics and debug logging.
+// 0 value will disable logging.
+// nolint:gochecknoglobals // one day i'll make this not a global
 var Logger logger
 
-// this logger is for query logging
+// QueryLogger this logger is for query logging
+// nolint:gochecknoglobals // one day i'll make this not a global
 var QueryLogger logger
 
 // performs a sprintf with a given format string and arguments iff the message is printable
 // at the logger's current level, this allows flexible log messages that can be turned on and
-// off easily without performing expensive sprintfs
+// off easily without performing expensive sprintfs.
 func (l logger) Sprintf(level LogLevel, format string, args ...interface{}) string {
 	if level <= l.level {
 		return fmt.Sprintf(format, args...)
@@ -58,7 +60,7 @@ func (l logger) Sprintf(level LogLevel, format string, args ...interface{}) stri
 	return "[message suppressed by log system]"
 }
 
-// takes a structured message, checks log level, outputs it in a set format
+// takes a structured message, checks log level, outputs it in a set format.
 func (l logger) Log(message LogMessage) {
 	if l.handle == nil {
 		// this logger was never initialized, just bail
@@ -67,7 +69,13 @@ func (l logger) Log(message LogMessage) {
 	if message.Level <= l.level {
 		message.Context["level"] = levelToString(message.Level)
 		now := time.Now()
-		message.Context["when"] = fmt.Sprintf("%d-%02d-%02d:%02d:%02d:%02d", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second())
+		message.Context["when"] = fmt.Sprintf("%d-%02d-%02d:%02d:%02d:%02d",
+			now.Year(),
+			now.Month(),
+			now.Day(),
+			now.Hour(),
+			now.Minute(),
+			now.Second())
 		output := parseKeys(message.Context)
 		if l.level >= DEBUG && message.DebugDetails != nil {
 			message.Context["debug"] = message.DebugDetails()
@@ -108,7 +116,7 @@ func levelToString(level LogLevel) string {
 	return "UNDEFINED"
 }
 
-// constructor, enforces format
+// constructor, enforces format.
 func NewLogMessage(level LogLevel, context LogContext, debugDetails func() string) LogMessage {
 	return LogMessage{
 		Level:        level,
@@ -121,7 +129,7 @@ func NewLogMessage(level LogLevel, context LogContext, debugDetails func() strin
 // default behavior is to open 'location', other options include:
 // "": /dev/null
 // "/dev/stderr": os.Stderr
-// "/dev/stdout": os.Stdout
+// "/dev/stdout": os.Stdout.
 func getLoggerHandle(location string) (*os.File, error) {
 	var handle *os.File
 	var err error
@@ -141,7 +149,7 @@ func getLoggerHandle(location string) (*os.File, error) {
 	return handle, nil
 }
 
-// initializes loggers
+// initializes loggers.
 func InitLoggers() error {
 	config := GetConfiguration()
 	handle, err := getLoggerHandle(config.ServerLog.Location)

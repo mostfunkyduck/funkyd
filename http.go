@@ -11,45 +11,54 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// nolint:unparam
 func handleError(w http.ResponseWriter, err error, code int) {
-	Logger.Log(NewLogMessage(
-		ERROR,
-		LogContext{
+	Logger.Log(LogMessage{
+		Level: ERROR,
+		Context: LogContext{
 			"error": fmt.Sprintf("%s", err),
 		},
-		func() string {
-			return fmt.Sprintf("[%v]", w)
-		},
-	))
+	})
 	w.WriteHeader(code)
 }
 
-func shutdownHttpHandler(w http.ResponseWriter, r *http.Request) {
+func shutdownHTTPHandler(w http.ResponseWriter, r *http.Request) {
+	// nolint:gomnd
 	w.WriteHeader(200)
-	w.Write([]byte("{\"message\": \"shutting down server\"}"))
+	_, err := w.Write([]byte("{\"message\": \"shutting down server\"}"))
+	if err != nil {
+		Logger.Log(LogMessage{
+			Level: ERROR,
+			Context: LogContext{
+				"what":  "error shutting down server",
+				"error": err.Error(),
+				"next":  "continuing shut down",
+			},
+		})
+	}
 	Shutdown()
 }
 
-func versionHttpHandler(w http.ResponseWriter, r *http.Request) {
+func versionHTTPHandler(w http.ResponseWriter, r *http.Request) {
 	v := GetVersion()
 	str, err := json.Marshal(v)
 	if err != nil {
 		handleError(w, err, 500)
 	}
 
-	if _, err := w.Write([]byte(str)); err != nil {
+	if _, err := w.Write(str); err != nil {
 		handleError(w, err, 500)
 	}
 }
 
-func configHttpHandler(w http.ResponseWriter, r *http.Request) {
+func configHTTPHandler(w http.ResponseWriter, r *http.Request) {
 	conf := GetConfiguration()
 	str, err := json.Marshal(conf)
 	if err != nil {
 		handleError(w, err, 500)
 		return
 	}
-	_, err = w.Write([]byte(str))
+	_, err = w.Write(str)
 	if err != nil {
 		handleError(w, err, 500)
 	}
@@ -70,22 +79,24 @@ func setContentTypeHeader(next http.Handler) http.Handler {
 }
 
 //nolint
-var HttpServer *http.Server
+var HTTPServer *http.Server
 
-func InitApi() {
+func InitAPI() {
 	conf := GetConfiguration()
 	router := mux.NewRouter().StrictSlash(true)
 	InitPrometheus(router)
 	router.Use(addPratchettHeader)
 	router.Use(setContentTypeHeader)
 
-	router.HandleFunc("/v1/config", configHttpHandler)
-	router.HandleFunc("/v1/shutdown", shutdownHttpHandler)
-	router.HandleFunc("/v1/version", versionHttpHandler)
+	router.HandleFunc("/v1/config", configHTTPHandler)
+	router.HandleFunc("/v1/shutdown", shutdownHTTPHandler)
+	router.HandleFunc("/v1/version", versionHTTPHandler)
 	log.Printf("starting HTTP server on ':%d'\n", conf.HttpPort)
-	HttpServer := &http.Server{Handler: router, Addr: fmt.Sprintf(":%d", conf.HttpPort)}
+	HTTPServer := &http.Server{Handler: router, Addr: fmt.Sprintf(":%d", conf.HttpPort)}
 	// don't block the main thread with this jazz
 	go func() {
-		log.Printf(fmt.Sprintf("%s", HttpServer.ListenAndServe()))
+		if err := HTTPServer.ListenAndServe(); err != nil {
+			log.Fatalf("error on http server: %s", err)
+		}
 	}()
 }

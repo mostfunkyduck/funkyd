@@ -56,22 +56,6 @@ func (_m *MockServer) GetConnectionPool() ConnPool {
 	return r0
 }
 
-// GetDnsClient provides a mock function with given fields:
-func (_m *MockServer) GetDnsClient() Client {
-	ret := _m.Called()
-
-	var r0 Client
-	if rf, ok := ret.Get(0).(func() Client); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(Client)
-		}
-	}
-
-	return r0
-}
-
 // GetHostedCache provides a mock function with given fields:
 func (_m *MockServer) GetHostedCache() Cache {
 	ret := _m.Called()

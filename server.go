@@ -1,6 +1,6 @@
 package main
 
-// Generic functions and types for servers
+// Generic functions and types for servers.
 import (
 	"crypto/tls"
 	"fmt"
@@ -15,7 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// making this to support dependency injection into the server
+// making this to support dependency injection into the server.
 type Client interface {
 	// Make a new connection
 	Dial(address string) (conn *dns.Conn, err error)
@@ -24,7 +24,7 @@ type Client interface {
 	ExchangeWithConn(s *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error)
 }
 
-// this abstraction helps us test the entire servedns path
+// this abstraction helps us test the entire servedns path.
 type ResponseWriter interface {
 	WriteMsg(*dns.Msg) error
 }
@@ -45,9 +45,6 @@ type Server interface {
 	// Retrieves records from cache or an upstream
 	RetrieveRecords(domain string, rrtype uint16) (Response, string, error)
 
-	// Retrieve the server's outbound client
-	GetDnsClient() Client
-
 	// Retrieve the cache of locally hosted records
 	GetHostedCache() Cache
 
@@ -58,42 +55,49 @@ type Server interface {
 	GetConnectionPool() ConnPool
 }
 
-func processResults(r dns.Msg, domain string, rrtype uint16) (Response, error) {
+func processResults(r dns.Msg, domain string, rrtype uint16) Response {
 	return Response{
 		Entry:        r,
 		CreationTime: time.Now(),
 		Name:         domain,
 		Qtype:        rrtype,
-	}, nil
+	}
 }
 
 func sendServfail(w ResponseWriter, duration time.Duration, r *dns.Msg) {
 	LocalServfailsCounter.Inc()
 	m := &dns.Msg{}
 	m.SetRcode(r, dns.RcodeServerFailure)
-	w.WriteMsg(m)
+	if err := w.WriteMsg(m); err != nil {
+		Logger.Log(LogMessage{
+			Level: ERROR,
+			Context: LogContext{
+				"what":  "error writing servfail reply",
+				"error": err.Error(),
+			},
+		})
+	}
 	logQuery("servfail", duration, m)
 }
 
-func logQuery(source string, duration time.Duration, response *dns.Msg) error {
+func logQuery(source string, duration time.Duration, response *dns.Msg) {
 	var queryContext LogContext
-	for i, _ := range response.Question {
-		for j, _ := range response.Answer {
-			answerBits := strings.Split(response.Answer[j].String(), " ")
+	for _, q := range response.Question {
+		for _, a := range response.Answer {
+			answerBits := strings.Split(a.String(), " ")
 			queryContext = LogContext{
-				"name":         response.Question[i].Name,
-				"type":         dns.Type(response.Question[i].Qtype).String(),
+				"name":         q.Name,
+				"type":         dns.Type(q.Qtype).String(),
 				"opcode":       dns.OpcodeToString[response.Opcode],
 				"answer":       answerBits[len(answerBits)-1],
 				"answerSource": fmt.Sprintf("[%s]", source),
-				"duration":     fmt.Sprintf("%s", duration),
+				"duration":     duration.String(),
 			}
 			QueryLogger.Log(LogMessage{
 				Context: queryContext,
 			})
 		}
 	}
-	return nil
 }
 
 func sockoptSetter(network, address string, c syscall.RawConn) (err error) {
@@ -115,7 +119,7 @@ func buildDialer(timeout time.Duration) (dialer *net.Dialer) {
 	}
 }
 
-func BuildClient() (*dns.Client, error) {
+func BuildClient() *dns.Client {
 	config := GetConfiguration()
 	timeout := config.Timeout * time.Millisecond
 	cl := &dns.Client{
@@ -124,6 +128,7 @@ func BuildClient() (*dns.Client, error) {
 		Timeout:        timeout,
 		Net:            "tcp-tls",
 		TLSConfig: &tls.Config{
+			// nolint:gosec // this is for intentionally decreasing security during testing
 			InsecureSkipVerify: config.SkipUpstreamVerification,
 		},
 	}
@@ -134,10 +139,10 @@ func BuildClient() (*dns.Client, error) {
 			"next": "returning for use",
 		},
 	})
-	return cl, nil
+	return cl
 }
 
-// assumes that the caller will close connection upon any errors
+// assumes that the caller will close connection upon any errors.
 func attemptExchange(m *dns.Msg, ce ConnEntry, client Client) (reply *dns.Msg, err error) {
 	address := ce.GetAddress()
 	exchangeTimer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {

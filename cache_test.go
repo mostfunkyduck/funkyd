@@ -9,12 +9,8 @@ import (
 	"github.com/miekg/dns"
 )
 
-func setupCache() (rc *RecordCache, err error) {
-	rawCache, err := NewCache()
-	if err != nil {
-		return nil, err
-	}
-
+func setupCache() (rc *RecordCache) {
+	rawCache := NewCache()
 	rc = rawCache.(*RecordCache)
 	// the janitor will get in the way of unit testing as it automatically
 	// purges recoords, better to leave it stubbed
@@ -31,18 +27,8 @@ func setupResponse(idx int) Response {
 	}
 }
 
-func TestCache(t *testing.T) {
-	_, err := setupCache()
-	if err != nil {
-		t.Fatalf("couldn't set up cache: %s", err.Error())
-	}
-}
-
 func TestStorage(t *testing.T) {
-	cache, err := setupCache()
-	if err != nil {
-		t.Fatalf("couldn't set up cache: %s", err.Error())
-	}
+	cache := setupCache()
 	response := setupResponse(1)
 	response.Ttl = 1099 * time.Second
 	response.CreationTime = time.Now()
@@ -65,10 +51,7 @@ func TestStorage(t *testing.T) {
 }
 
 func TestClean(t *testing.T) {
-	cache, err := setupCache()
-	if err != nil {
-		t.Fatalf("couldn't set up cache: %s", err.Error())
-	}
+	cache := setupCache()
 	cache.TrashMan = &trashMan{
 		responses:         make(map[string]Response),
 		evictionBatchSize: 2,
@@ -125,7 +108,12 @@ func TestClean(t *testing.T) {
 	if !WaitForCondition(10, func() bool {
 		return cache.TrashMan.ResponsesQueued() == 2
 	}) {
-		t.Fatalf("trashman didn't queue second response! resp [%v] cache [%v] tm [%v] rq[%d]", response2, cache, cache.TrashMan, cache.TrashMan.ResponsesQueued())
+		t.Fatalf("trashman didn't queue second response! resp [%v] cache [%v] tm [%v] rq[%d]",
+			response2,
+			cache,
+			cache.TrashMan,
+			cache.TrashMan.ResponsesQueued(),
+		)
 	}
 
 	cache.TrashMan.Unpause()
@@ -133,7 +121,11 @@ func TestClean(t *testing.T) {
 	if !WaitForCondition(10, func() bool {
 		return cache.Size() == 0
 	}) {
-		t.Fatalf("trash man did not actually delete the records! %d != 0 (after test closure ran), cache: [%v] trashman [%v]", cache.Size(), cache, cache.TrashMan)
+		t.Fatalf("trash man did not actually delete the records! %d != 0 (after test closure ran), cache: [%v] trashman [%v]",
+			cache.Size(),
+			cache,
+			cache.TrashMan,
+		)
 	}
 
 	if bufferSize := cache.TrashMan.ResponsesQueued(); bufferSize != 0 {
@@ -141,8 +133,8 @@ func TestClean(t *testing.T) {
 	}
 }
 
-// queues up a channel with $max responses being fed into it by a separate goroutine
-func prepareCacheBenchmark(cache *RecordCache) (c chan Response, expected int) {
+// queues up a channel with $max responses being fed into it by a separate goroutine.
+func prepareCacheBenchmark() (c chan Response, expected int) {
 	max := 100000
 	responses := []Response{}
 	// the idea here is to create enough test removals to cause a lot of contention for the lock
@@ -162,12 +154,9 @@ func prepareCacheBenchmark(cache *RecordCache) (c chan Response, expected int) {
 }
 
 func BenchmarkCacheAddParallel(b *testing.B) {
-	cache, err := setupCache()
-	if err != nil {
-		b.Fatalf("couldn't set up cache: %s", err.Error())
-	}
+	cache := setupCache()
 
-	responseChannel, expected := prepareCacheBenchmark(cache)
+	responseChannel, expected := prepareCacheBenchmark()
 	b.Log("setup complete, starting tests")
 	b.ResetTimer()
 
@@ -186,11 +175,9 @@ func BenchmarkCacheAddParallel(b *testing.B) {
 }
 
 func BenchmarkCacheRemoveParallel(b *testing.B) {
-	cache, err := setupCache()
-	if err != nil {
-		b.Fatalf("couldn't set up cache: %s", err.Error())
-	}
-	responseChannel, expected := prepareCacheBenchmark(cache)
+	cache := setupCache()
+
+	responseChannel, expected := prepareCacheBenchmark()
 	b.Log("setup complete, starting tests")
 	b.ResetTimer()
 

@@ -27,12 +27,12 @@ func (s *StubConnPool) Get() (ce ConnEntry, upstream Upstream) {
 	return
 }
 
-// Adds a new connection to the pool
+// Adds a new connection to the pool.
 func (s *StubConnPool) Add(ce ConnEntry) (err error) {
 	return nil
 }
 
-// Add a new upstream to the pool
+// Add a new upstream to the pool.
 func (s *StubConnPool) AddUpstream(r *Upstream) {
 
 }
@@ -50,7 +50,7 @@ func (s *StubConnPool) NewConnection(upstream Upstream, dialFunc DialFunc) (ce C
 	return
 }
 
-// Returns the number of open connections in the pool
+// Returns the number of open connections in the pool.
 func (s *StubConnPool) Size() int {
 	return 0
 }
@@ -59,13 +59,14 @@ type StubJanitor struct {
 	mock.Mock
 }
 
-// No need for the stub to do anything in this case
+// No need for the stub to do anything in this case.
 func (s *StubJanitor) Start(r *RecordCache) {
 }
 
 func (s *StubJanitor) Stop() {
 }
 
+// nolint:unused // FIXME this should be used instead of awkward pipes
 type StubConn struct {
 	mock.Mock
 }
@@ -74,15 +75,15 @@ func (s *StubConn) Close() error {
 	return nil
 }
 
-type StubDnsClient struct {
+type StubDNSClient struct {
 	mock.Mock
 }
 
-func (m *StubDnsClient) ExchangeWithConn(s *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
+func (m *StubDNSClient) ExchangeWithConn(s *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
 	return &dns.Msg{}, time.Duration(0), nil
 }
 
-func (m *StubDnsClient) Dial(address string) (conn *dns.Conn, err error) {
+func (m *StubDNSClient) Dial(address string) (conn *dns.Conn, err error) {
 	server, client := net.Pipe()
 	server.Close()
 	return &dns.Conn{Conn: client}, nil
@@ -90,14 +91,11 @@ func (m *StubDnsClient) Dial(address string) (conn *dns.Conn, err error) {
 
 // builds a stub server, connects to a stub client, returns the stuff
 // stub server = server with contents stubbed, not a stub of the server
-// that's confusing, will fix eventually
-func BuildStubServer() (Server, *StubDnsClient, error) {
-	testClient := new(StubDnsClient)
-	server, err := NewMutexServer(testClient, new(StubConnPool))
+// that's confusing, will fix eventually.
+func BuildStubServer() (Server, error) {
+	testClient := new(StubDNSClient)
+	server := NewMutexServer(testClient, new(StubConnPool))
 	server.(*MutexServer).Cache.StopCleaningCrew()
-	if err != nil {
-		return server, testClient, err
-	}
 
 	server.AddUpstream(
 		&Upstream{
@@ -110,5 +108,5 @@ func BuildStubServer() (Server, *StubDnsClient, error) {
 		},
 	)
 
-	return server, testClient, nil
+	return server, nil
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Basic functions for a pipeline worker
+// Basic functions for a pipeline worker.
 type PipelineServerWorker interface {
 	// starts the worker gr(s)
 	Start()
@@ -21,12 +21,12 @@ type PipelineServerWorker interface {
 }
 
 // interface for the timer in the query struct, mainly to avoid
-// tightly coupling to prometheus
+// tightly coupling to prometheus.
 type QueryDurationTimer interface {
 	ObserveDuration() time.Duration
 }
 
-// Basic implementation for a pipeline worker
+// Basic implementation for a pipeline worker.
 type pipelineServerWorker struct {
 	PipelineServerWorker
 	// channel for accepting new queries
@@ -51,7 +51,7 @@ type pipelineServerWorker struct {
 
 // Pairs outbound queries with connections
 // Dispatch: connection is successful, forward to PipelineQuerier
-// Fail: connection failure, forward to PipelineFinisher for servfail
+// Fail: connection failure, forward to PipelineFinisher for servfail.
 type PipelineConnector struct {
 	pipelineServerWorker
 
@@ -90,7 +90,8 @@ type PipelineQueryHandler struct {
 
 // does actual queries
 // Dispatch: query successful, forward to replier for happy response
-// Fail: send back to PipelineConnector for a new connection, this will keep happening until the PipelineConnector gives up
+// Fail: send back to PipelineConnector for a new connection,
+// this will keep happening until the PipelineConnector gives up.
 type PipelineQuerier struct {
 	pipelineServerWorker
 
@@ -106,7 +107,7 @@ type PipelineFinisher struct {
 	servfailsChannel chan Query
 }
 
-// Context variable for queries, passed through pipeline to all workers
+// Context variable for queries, passed through pipeline to all workers.
 type Query struct {
 	// The query payload
 	Msg *dns.Msg
@@ -130,7 +131,7 @@ type Query struct {
 	W ResponseWriter
 }
 
-/** base worker functions **/
+// base worker functions.
 func (p *pipelineServerWorker) Dispatch(q Query) {
 	p.outboundQueryChannel <- q
 }
@@ -139,7 +140,7 @@ func (p *pipelineServerWorker) Fail(q Query) {
 	p.failedQueryChannel <- q
 }
 
-/** PipelineConnector **/
+// PipelineConnector.
 func (c *PipelineConnector) AddUpstream(u *Upstream) {
 	c.connPool.AddUpstream(u)
 }
@@ -149,7 +150,17 @@ func (c *PipelineConnector) Start() {
 		for {
 			select {
 			case query := <-c.addingChannel:
-				c.connPool.Add(query.Conn)
+				if err := c.connPool.Add(query.Conn); err != nil {
+					Logger.Log(LogMessage{
+						Level: ERROR,
+						Context: LogContext{
+							"what":  "error adding connection to pool",
+							"error": err.Error(),
+							// this is expensive, but it's rare enough that it should be fine
+							"query": fmt.Sprintf("%v", query),
+						},
+					})
+				}
 			case query := <-c.closingChannel:
 				c.connPool.CloseConnection(query.Conn)
 			case query := <-c.inboundQueryChannel:
@@ -174,7 +185,7 @@ func (c *PipelineConnector) Start() {
 				// FIXME than i want to handle in the PipelineQuerier, but that's better than deadlock
 				// dispatch to PipelineQuerier
 				c.Dispatch(assignedQuery)
-			case _ = <-c.cancelChannel:
+			case <-c.cancelChannel:
 				logCancellation("PipelineConnector")
 				return
 			}
@@ -220,13 +231,13 @@ func (c *PipelineConnector) AssignConnection(q Query) (assignedQuery Query, err 
 	return assignedQuery, nil
 }
 
-/** query handler **/
+// query handler.
 func (q *PipelineQueryHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	q.HandleDNS(w, r)
 }
 
 func (q *PipelineQueryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
-	TotalDnsQueriesCounter.Inc()
+	TotalDNSQueriesCounter.Inc()
 	queryTimer := prometheus.NewTimer(QueryTimer)
 
 	QueuedQueriesGauge.Inc()
@@ -239,7 +250,7 @@ func (q *PipelineQueryHandler) HandleDNS(w ResponseWriter, r *dns.Msg) {
 	QueuedQueriesGauge.Dec()
 }
 
-/** PipelineQuerier **/
+// PipelineQuerier.
 func (q *PipelineQuerier) Query(qu Query) (query Query, err error) {
 	query = qu
 	RecursiveQueryCounter.Inc()
@@ -253,8 +264,7 @@ func (q *PipelineQuerier) Query(qu Query) (query Query, err error) {
 		Logger.Log(NewLogMessage(
 			WARNING,
 			LogContext{
-				"what":  "failed exchange with upstreams",
-				"error": err.Error(),
+				"what": "failed exchange with upstreams", "error": err.Error(),
 			},
 			nil,
 		))
@@ -269,11 +279,10 @@ func (q *PipelineQuerier) Query(qu Query) (query Query, err error) {
 }
 
 func (q *PipelineQuerier) Start() {
-
 	go func() {
 		for {
 			select {
-			case _ = <-q.cancelChannel:
+			case <-q.cancelChannel:
 				logCancellation("PipelineQuerier")
 				return
 			case query := <-q.inboundQueryChannel:
@@ -299,10 +308,10 @@ func (q *PipelineQuerier) Start() {
 	}()
 }
 
-/** PipelineCacher **/
+// PipelineCacher.
 
 // checks for a query in the cache, the cache object handles
-// expiry
+// expiry.
 func (c *PipelineCacher) CheckCache(q Query) (result Response, ok bool) {
 	if (q.Msg == nil) || len(q.Msg.Question) < 1 {
 		return Response{}, false
@@ -310,7 +319,7 @@ func (c *PipelineCacher) CheckCache(q Query) (result Response, ok bool) {
 	return c.cache.Get(q.Msg.Question[0].Name, q.Msg.Question[0].Qtype)
 }
 
-// adds a connection to the cache
+// adds a connection to the cache.
 func (c *PipelineCacher) CacheQuery(q Query) {
 	question := q.Msg.Question[0]
 	r := Response{
@@ -338,7 +347,7 @@ func (c *PipelineCacher) Start() {
 			case q := <-c.cachingChannel:
 				c.CacheQuery(q)
 				// no need to do anything else
-			case _ = <-c.cancelChannel:
+			case <-c.cancelChannel:
 				logCancellation("PipelineCacher")
 				return
 			}
@@ -350,7 +359,7 @@ func (p *PipelineFinisher) Start() {
 	go func() {
 		for {
 			select {
-			case _ = <-p.cancelChannel:
+			case <-p.cancelChannel:
 				logCancellation("PipelineFinisher")
 				return
 			case q := <-p.servfailsChannel:
@@ -413,16 +422,12 @@ func NewPipelineServerWorker() pipelineServerWorker {
 
 // NewPipelineServer Builds all of the pieces of the pipeline server
 // returns the pipeline query handler (the first step in this process), a list
-// of cancel channels for turning off the workers, and an optional error
+// of cancel channels for turning off the workers, and an optional error.
 func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cancelChannels []chan bool, err error) {
 	config := GetConfiguration()
 	client := cl
 	if client == nil {
-		var err error
-		client, err = BuildClient()
-		if err != nil {
-			return qh, cancelChannels, fmt.Errorf("could not build client [%s]", err.Error())
-		}
+		client = BuildClient()
 	}
 
 	queryHandler := &PipelineQueryHandler{
@@ -439,10 +444,7 @@ func NewPipelineServer(cl Client, pool ConnPool) (qh PipelineQueryHandler, cance
 	// INIT PipelineCacher
 	cacheWorker := NewPipelineServerWorker()
 	// the handler passes good queries to the cacher
-	cache, err := NewCache()
-	if err != nil {
-		return qh, cancelChannels, fmt.Errorf("could not create record cache for PipelineCacher: %s", err.Error())
-	}
+	cache := NewCache()
 
 	cachr := &PipelineCacher{
 		pipelineServerWorker: cacheWorker,

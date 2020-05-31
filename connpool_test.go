@@ -50,7 +50,8 @@ func TestConnectionPoolSingleEntry(t *testing.T) {
 	ce1, upstream := pool.Get()
 
 	if (upstream != Upstream{}) {
-		t.Fatalf("tried to retrieve connection from pool, was prompted to make a new connection instead, upstream was [%v]", upstream)
+		t.Fatalf("tried to retrieve connection from pool, was prompted to make a new connection instead, upstream was [%v]",
+			upstream)
 	}
 
 	ce1Address := ce1.GetAddress()
@@ -77,7 +78,7 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 	for i := 0; i < max; i++ {
 		name := f(i)
 		newUpstream := &Upstream{
-			Name: UpstreamName(name),
+			Name: name,
 		}
 		pool.AddUpstream(newUpstream)
 		upstreamNamesSeen[name] = false
@@ -104,12 +105,12 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 		ce, upstream := pool.Get()
 
 		if (upstream != Upstream{}) {
-			t.Fatalf("tried to retrieve connection from pool, got prompted to make a connection instead. size: [%d], pool: [%v], upstream: [%v] entry: [%d]", pool.Size(), pool, upstream, i)
+			t.Fatalf("tried to retrieve connection from pool, got prompted to make a connection instead."+
+				" size: [%d], pool: [%v], upstream: [%v] entry: [%d]", pool.Size(), pool, upstream, i)
 		}
 
 		upstreamNamesSeen[UpstreamName(ce.GetAddress())] = true
 	}
-
 }
 
 func TestIllegalUpstreamAddition(t *testing.T) {
@@ -121,7 +122,7 @@ func TestIllegalUpstreamAddition(t *testing.T) {
 	}
 
 	if err := pool.Add(ce); err == nil {
-		t.Fatalf("was able to add conn entry [%v] with non-existant upstream [%v] to pool [%v]", ce, ce.upstream, pool)
+		t.Fatalf("was able to add conn entry [%v] with non-existent upstream [%v] to pool [%v]", ce, ce.upstream, pool)
 	}
 }
 
@@ -229,7 +230,6 @@ func BenchmarkConnectionParallel(b *testing.B) {
 			i++
 		}
 	})
-
 }
 
 /** This seems to brick the benchmark framework, it keeps retrying until so many

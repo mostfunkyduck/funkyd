@@ -9,40 +9,36 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-type MockDnsClient struct {
+type MockDNSClient struct {
 	mock.Mock
 }
 
-func (m *MockDnsClient) ExchangeWithConn(s *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
+func (m *MockDNSClient) ExchangeWithConn(s *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
 	ret := m.Called(s, conn)
 	return ret.Get(0).(*dns.Msg), ret.Get(1).(time.Duration), ret.Error(2)
 }
 
-func (m *MockDnsClient) Dial(address string) (conn *dns.Conn, err error) {
+func (m *MockDNSClient) Dial(address string) (conn *dns.Conn, err error) {
 	ret := m.Called(address)
 	return ret.Get(0).(*dns.Conn), ret.Error(1)
 }
 
-func buildTestResources() (Server, *StubDnsClient, error) {
+func buildTestResources() (Server, error) {
 	return BuildStubServer()
 }
 
-func buildTestServer(testClient *MockDnsClient, testPool *MockConnPool) (Server, error) {
-	server, err := NewMutexServer(testClient, testPool)
-	if err != nil {
-		return server, err
-	}
+func buildTestServer(testClient Client, testPool ConnPool) Server {
+	server := NewMutexServer(testClient, testPool)
 
-	return server, nil
+	return server
 }
 
 func TestRecursiveQueryErrors(t *testing.T) {
-	cl := new(MockDnsClient)
+	cl := new(MockDNSClient)
 	pool := new(MockConnPool)
-	server, err := buildTestServer(cl, pool)
-	if err != nil {
-		t.Fatalf("could not build test resources: [%v]: %s", server, err)
-	}
+	server := buildTestServer(cl, pool)
+
+	// nolint:lll
 	cl.On("ExchangeWithConn", mock.Anything, mock.Anything).Return(&dns.Msg{}, time.Duration(0), fmt.Errorf("no DNS for you!"))
 	pool.On("Get").Return(&connEntry{Conn: &dns.Conn{}}, Upstream{}, nil)
 	pool.On("CloseConnection", mock.Anything).Return(nil)
@@ -52,9 +48,9 @@ func TestRecursiveQueryErrors(t *testing.T) {
 	cl.AssertExpectations(t)
 }
 
-/** BENCHMARKS **/
+// BENCHMARKS.
 func BenchmarkServeDNSParallel(b *testing.B) {
-	server, _, err := buildTestResources()
+	server, err := buildTestResources()
 	if err != nil {
 		b.Fatalf("could not initialize server [%s]", err)
 	}
@@ -69,7 +65,7 @@ func BenchmarkServeDNSParallel(b *testing.B) {
 }
 
 func BenchmarkServeDNSSerial(b *testing.B) {
-	server, _, err := buildTestResources()
+	server, err := buildTestResources()
 	if err != nil {
 		b.Fatalf("could not initialize server [%s]", err)
 	}

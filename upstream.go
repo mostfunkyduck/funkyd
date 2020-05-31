@@ -39,18 +39,18 @@ func (u *Upstream) SetWeight(w UpstreamWeight) {
 	u.weight = w
 }
 
-// Sets a wakeup time until which no connections should be made
+// Sets a wakeup time until which no connections should be made.
 func (u *Upstream) Cooldown(t time.Duration) {
 	u.wakeupTime = time.Now().Add(t)
 }
 
 // returns whether or not the wakeupTime is after the current time
-// if so, this upstream shouldn't get more connections
+// if so, this upstream shouldn't get more connections.
 func (u *Upstream) IsCooling() (ret bool) {
 	return u.wakeupTime.After(time.Now())
 }
 
-// returns the actual time when this upstream will be ready for connections
+// returns the actual time when this upstream will be ready for connections.
 func (u *Upstream) WakeupTime() (wakeupTime time.Time) {
 	return u.wakeupTime
 }

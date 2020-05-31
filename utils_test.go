@@ -1,6 +1,6 @@
 package main
 
-// General utilites
+// General utilites.
 import (
 	"fmt"
 	"net"
@@ -13,7 +13,10 @@ func UpstreamTestingDialer(upstream Upstream) func(addr string) (conn *dns.Conn,
 	expectedAddress := upstream.GetAddress()
 	return func(addr string) (conn *dns.Conn, err error) {
 		if addr != expectedAddress {
-			err = fmt.Errorf("got unexpected address [%s] when dialing upstream [%v], expecting address [%s] to be dialed", addr, upstream, expectedAddress)
+			err = fmt.Errorf("got unexpected address [%s] when dialing upstream [%v], expecting address [%s] to be dialed",
+				addr,
+				upstream,
+				expectedAddress)
 		}
 		server, client := net.Pipe()
 		server.Close()
@@ -34,6 +37,7 @@ func WaitForCondition(x int, f func() bool) (result bool) {
 func buildRequest() (request *dns.Msg) {
 	return &dns.Msg{
 		Question: []dns.Question{
+			// nolint:gofmt
 			dns.Question{
 				Name:   "example.com",
 				Qtype:  1,
@@ -41,8 +45,8 @@ func buildRequest() (request *dns.Msg) {
 			},
 		},
 	}
-
 }
+
 func buildQuery() (q Query) {
 	writer := &MockResponseWriter{}
 	qdt := &MockQueryDurationTimer{}
@@ -64,16 +68,6 @@ func buildAnswer() (m *dns.Msg) {
 	return &dns.Msg{
 		Answer: []dns.RR{
 			a,
-		},
-	}
-}
-
-func buildConnEntry() (c ConnEntry) {
-	s, cl := net.Pipe()
-	s.Close()
-	return &connEntry{
-		Conn: &dns.Conn{
-			Conn: cl,
 		},
 	}
 }

@@ -5,6 +5,7 @@ package main
 
 import "fmt"
 
+// nolint:gochecknoglobals // easy to access globals for the linker flags
 var versionHostname, versionBranch, versionTag, versionDate, versionRevision string
 
 type Version struct {
