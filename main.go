@@ -89,7 +89,6 @@ func loadLocalZones(server Server) {
 		}
 		for _, response := range responses {
 			log.Printf("adding [%v]\n", response)
-			// TODO one function to make the keys, please
 			server.GetHostedCache().Add(response)
 		}
 	}
