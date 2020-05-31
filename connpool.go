@@ -242,17 +242,20 @@ func (c *connPool) sortUpstreams() {
 }
 
 func (c *connPool) updateUpstreamTelemetry(u Upstream, errorString string) {
+	coolingString := "no cooling"
 	wut := u.WakeupTime()
-	coolingString := fmt.Sprintf(
-		"%d-%d-%d %d:%d:%d:%s",
-		wut.Year(),
-		wut.Month(),
-		wut.Day(),
-		wut.Hour(),
-		wut.Minute(),
-		wut.Second(),
-		time.Since(wut),
-	)
+	if time.Now().Before(wut) {
+		coolingString = fmt.Sprintf(
+			"%d-%d-%d %d:%d:%d:%s",
+			wut.Year(),
+			wut.Month(),
+			wut.Day(),
+			wut.Hour(),
+			wut.Minute(),
+			wut.Second(),
+			time.Since(wut),
+		)
+	}
 	UpstreamWeightGauge.WithLabelValues(u.GetAddress(), errorString, coolingString).Set(float64(u.GetWeight()))
 }
 
