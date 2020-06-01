@@ -56,5 +56,6 @@ funkyd: *.go
 	go build -ldflags "-X main.versionHostname=$(HOSTNAME) -X main.versionDate=$(DATE) -X main.versionBranch=$(BRANCH) -X main.versionTag=$(TAG) -X main.versionRevision=$(REVISION)"
 
 mocks: *.go
-	rm mock_*_test.go
+	# recreating all mocks
+	rm mock_*_test.go || /bin/true
 	mockery -inpkg -all -testonly
