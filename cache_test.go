@@ -43,7 +43,7 @@ func TestStorage(t *testing.T) {
 		t.Errorf("cache retrieval didn't return record matching what was inserted [%v][%v]\n", cachedResponse, response)
 	}
 
-	cache.Remove(response)
+	cache.RemoveSlice([]Response{response})
 	newrecord, ok := cache.Get(response.Name, response.Qtype)
 	if ok {
 		t.Errorf("deletion didn't work: [%v] [%v]\n", cache, newrecord)
@@ -184,7 +184,7 @@ func BenchmarkCacheRemoveParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			for response := range responseChannel {
-				cache.Remove(response)
+				cache.RemoveSlice([]Response{response})
 			}
 		}
 	})

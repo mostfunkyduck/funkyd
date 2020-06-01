@@ -18,9 +18,6 @@ type Cache interface {
 	// get current cache size
 	Size() int
 
-	// remove a response from the cache
-	Remove(response Response)
-
 	// remove a slice of responses from the cache
 	RemoveSlice(responses []Response)
 
@@ -41,9 +38,6 @@ type Cache interface {
 
 	// stops said cleaning crew
 	StopCleaningCrew()
-
-	// queues a response to be removed from the cache
-	Evict(resp Response)
 }
 
 // Cleans the cache periodically, evicting all bad responses for the trashman.
@@ -186,13 +180,12 @@ func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 	// this class will clean the cache as of now, so it needs a write lock
 	r.RLock()
 	defer r.RUnlock()
-	Logger.Log(NewLogMessage(
-		DEBUG,
-		LogContext{
+	Logger.Log(LogMessage{
+		Level: DEBUG,
+		Context: LogContext{
 			"what": Logger.Sprintf(DEBUG, "cache locked, attempting to get [%s] [%d] from cache", name, qtype),
 		},
-		nil,
-	))
+	})
 
 	response := Response{
 		Name:  name,
@@ -201,18 +194,17 @@ func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 	response, ok := r.cache[response.FormatKey()]
 
 	if !ok {
-		Logger.Log(NewLogMessage(INFO, LogContext{"what": "cache miss"}, nil))
+		Logger.Log(LogMessage{Level: INFO, Context: LogContext{"what": "cache miss"}})
 		return Response{}, false
 	}
 
-	Logger.Log(NewLogMessage(
-		INFO,
-		LogContext{
-			"what": "cache hit!",
-			"next": "validating and assembling response from rr's",
+	Logger.Log(LogMessage{
+		Level: INFO,
+		Context: LogContext{
+			"what":     "cache hit!",
+			"response": Logger.Sprintf(INFO, "%v", response),
 		},
-		func() string { return fmt.Sprintf("%v", response) },
-	))
+	})
 	// there are records for this domain/qtype
 	for _, rec := range response.Entry.Answer {
 		rec.Header().Ttl = response.getTTL()
@@ -224,40 +216,40 @@ func (r *RecordCache) Get(name string, qtype uint16) (Response, bool) {
 			// TODO differentiate between synthesized CNAMEs and regular records -
 			// CNAMES have long TTLs  since they refer to an A that's holding the actual value,
 			// therefore the synthesized A will die before the CNAME itself.
-			Logger.Log(NewLogMessage(
-				DEBUG,
-				LogContext{
+			Logger.Log(LogMessage{
+				Level: DEBUG,
+				Context: LogContext{
 					"what": "cached entry has expired",
 					"why":  "response contains record with expired TTL",
 					"next": "returning cache miss",
 				},
-				nil,
-			))
-			r.Evict(response)
+			})
+			go r.TrashMan.Evict(response)
 			return Response{}, false
 		}
 	}
-	Logger.Log(NewLogMessage(DEBUG, LogContext{"what": Logger.Sprintf(DEBUG, "returning [%s] from cache get", name)}, nil))
+	Logger.Log(LogMessage{
+		Level: DEBUG,
+		Context: LogContext{
+			"what": "returning from cache get",
+			"item": name,
+		},
+	})
 	return response, true
-}
-
-func (r *RecordCache) Remove(response Response) {
-	r.Lock()
-	defer r.Unlock()
-	r.remove(response)
 }
 
 // Removes an entire response from the cache, helper function, not reentrant.
 func (r *RecordCache) remove(response Response) {
 	key := response.FormatKey()
-	Logger.Log(NewLogMessage(
-		DEBUG,
-		LogContext{
-			"what": "removing cache entry",
-			"key":  key,
+	Logger.Log(LogMessage{
+		Level: DEBUG,
+		Context: LogContext{
+			"what":     "removing cache entry",
+			"key":      key,
+			"response": Logger.Sprintf(DEBUG, "%v", response),
+			"cache":    Logger.Sprintf(DEBUG, "%v", r),
 		},
-		func() string { return fmt.Sprintf("resp [%v] cache [%v]", response, r) },
-	))
+	})
 	delete(r.cache, key)
 	CacheSizeGauge.Set(float64(len(r.cache)))
 }
@@ -269,6 +261,7 @@ func (r *RecordCache) RemoveSlice(responses []Response) {
 		r.remove(resp)
 	}
 }
+
 func (r *RecordCache) RLock() {
 	r.lock.RLock()
 }
@@ -277,8 +270,6 @@ func (r *RecordCache) RUnlock() {
 	r.lock.RUnlock()
 }
 
-// can't log before lock, the log function iterates through the map
-// which is a nice, delicious race condition with writes.
 func (r *RecordCache) Lock() {
 	r.lock.Lock()
 }
@@ -292,15 +283,13 @@ func (r *RecordCache) Clean() int {
 	r.Lock()
 	defer r.Unlock()
 
-	Logger.Log(NewLogMessage(
-		DEBUG,
-		LogContext{
+	Logger.Log(LogMessage{
+		Level: DEBUG,
+		Context: LogContext{
 			"what": "starting clean job, cache locked",
 			"why":  "cleaning record cache",
-			"next": "iterating through cache",
 		},
-		func() string { return fmt.Sprintf("%v", r) },
-	))
+	})
 
 	// https://tools.ietf.org/html/rfc2181#section-5.2 - if TTLs differ in a RRSET, this is illegal, but you should
 	// treat it as if the lowest TTL is the TTL
@@ -317,32 +306,21 @@ func (r *RecordCache) Clean() int {
 		})
 		for _, record := range response.Entry.Answer {
 			if response.RecordExpired(record) {
-				// CNAME analysis will have to happen here
-				Logger.Log(NewLogMessage(
-					DEBUG,
-					LogContext{
+				// TODO CNAME analysis will have to happen here
+				Logger.Log(LogMessage{
+					Level: DEBUG,
+					Context: LogContext{
 						"what": "evicting response",
 						"key":  response.FormatKey(),
 					},
-					nil,
-				))
-				r.Evict(response)
+				})
+				go r.TrashMan.Evict(response)
 				recordsDeleted++
 				break
 			}
 		}
 	}
 	return recordsDeleted
-}
-
-// tell the trashman to dispose of this response.
-func (r *RecordCache) Evict(resp Response) {
-	// need to async or there will be deadlock when a caller is holding
-	// r's lock and this function has to essentially trigger a 'Remove'
-	// that needs that lock to progress
-	go func() {
-		r.TrashMan.Evict(resp)
-	}()
 }
 
 func NewCache() Cache {
@@ -387,14 +365,13 @@ func (t *trashMan) AddResponse(r Response) {
 }
 
 func (t *trashMan) FlushResponses() {
-	Logger.Log(NewLogMessage(
-		INFO,
-		LogContext{
+	Logger.Log(LogMessage{
+		Level: INFO,
+		Context: LogContext{
 			"what":        "trashman flushing evicted records",
 			"recordcount": fmt.Sprintf("%d", t.ResponsesQueued()),
 		},
-		nil,
-	))
+	})
 
 	flushBuffer := []Response{}
 	for k, v := range t.responses {
@@ -425,27 +402,25 @@ func (t *trashMan) Start(r *RecordCache) {
 	t.pauseChannel = make(chan bool)
 	t.recordCache = r
 	go func() {
-		Logger.Log(NewLogMessage(
-			INFO,
-			LogContext{
+		Logger.Log(LogMessage{
+			Level: INFO,
+			Context: LogContext{
 				"what":      "starting trashman",
-				"batchsize": string(t.evictionBatchSize),
+				"batchsize": fmt.Sprintf("%d", t.evictionBatchSize),
 			},
-			nil,
-		))
-	tmloop:
+		})
 		for {
 			select {
 			case response := <-t.Channel:
-				Logger.Log(NewLogMessage(
-					DEBUG,
-					LogContext{
+				Logger.Log(LogMessage{
+					Level: DEBUG,
+					Context: LogContext{
 						"what":             "trashman discarding response",
 						"response":         response.FormatKey(),
 						"queued_responses": fmt.Sprintf("%d", t.ResponsesQueued()),
+						"full_response":    Logger.Sprintf(DEBUG, "%v", response),
 					},
-					func() string { return fmt.Sprintf("response: [%v]", response) },
-				))
+				})
 				t.AddResponse(response)
 				if t.ResponsesQueued() >= t.evictionBatchSize && !t.paused {
 					t.FlushResponses()
@@ -458,7 +433,7 @@ func (t *trashMan) Start(r *RecordCache) {
 					t.FlushResponses()
 				}
 			case <-t.Cancel:
-				break tmloop
+				return
 			}
 		}
 	}()
@@ -477,14 +452,13 @@ func (j *janitor) Start(r *RecordCache) {
 			interval = 1000
 		}
 		t := time.NewTicker(interval * time.Millisecond)
-		Logger.Log(NewLogMessage(
-			INFO,
-			LogContext{
+		Logger.Log(LogMessage{
+			Level: INFO,
+			Context: LogContext{
 				"what":     "starting janitor",
 				"interval": fmt.Sprintf("%d", interval),
 			},
-			nil,
-		))
+		})
 		for {
 			select {
 			case <-t.C:
