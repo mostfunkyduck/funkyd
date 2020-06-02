@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"time"
 )
 
@@ -68,6 +69,7 @@ func (l logger) Log(message LogMessage) {
 	}
 	if message.Level <= l.level {
 		message.Context["level"] = levelToString(message.Level)
+		message.Context["where"] = getWhereString()
 		now := time.Now()
 		message.Context["when"] = fmt.Sprintf("%d-%02d-%02d:%02d:%02d:%02d",
 			now.Year(),
@@ -82,6 +84,14 @@ func (l logger) Log(message LogMessage) {
 		}
 		l.output(output)
 	}
+}
+
+func getWhereString() (str string) {
+	_, file, line, ok := runtime.Caller(2) // 0 is this function, 1 is the Log function calling this, 2 is the original caller
+	if ok {
+		return fmt.Sprintf("%s:%d", file, line)
+	}
+	return "error parsing call location"
 }
 
 func (l logger) output(output string) {
