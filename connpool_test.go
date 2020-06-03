@@ -151,7 +151,7 @@ func TestConnectionPoolSize(t *testing.T) {
 }
 
 func TestConnectionPoolWeighting(t *testing.T) {
-	pool := buildPool()
+	pool := NewConnPool()
 	upstream, upstream1 := &Upstream{Name: "example.com"}, &Upstream{Name: "test.example.com"}
 	pool.AddUpstream(upstream)
 	pool.AddUpstream(upstream1)
@@ -166,19 +166,55 @@ func TestConnectionPoolWeighting(t *testing.T) {
 		t.Fatalf("weight on new connection was wrong: [%f] != 0", weight)
 	}
 
+	// add an exchange so that the other upstream gets preferred
+	ce.AddExchange(time.Duration(1) * time.Millisecond)
 	if err := pool.Add(ce); err != nil {
 		t.Fatalf("got error trying to add ce [%v] to pool [%v]: %s", ce, pool, err.Error())
 	}
 
 	// Once a connection is in the pool, does it get returned or does the pool prompt for additional connections?
-	// this also tests that lower weighted resolvers don't take precedence over ones with connections
+	// this will demonstrate that even in the presence of upstreams with connections, the pool will attempt
+	// to make new ones for upstreams that haven't seen any action yet
 	ce2, upstream2 := pool.Get()
-	if (upstream2 != Upstream{}) {
-		t.Fatalf("expected to receive cached connection, got prompted to connect to [%v] instead", upstream2)
+	if (upstream2 == Upstream{}) {
+		t.Fatalf("expected to receive prompt to connect to new upstream, got cached conn [%v] instead", ce2)
 	}
 
-	if ce2Addr, upstreamAddr := ce2.GetAddress(), upstream.GetAddress(); ce2Addr != upstreamAddr {
-		t.Fatalf("got connection to different upstream [%s] when a connection to [%s] was expected", ce2Addr, upstreamAddr)
+	// weight this so that the other upstream will bubble up
+	ce.AddExchange(time.Duration(2) * time.Millisecond)
+	if err := pool.Add(ce); err != nil {
+		t.Fatalf("got error trying to add ce [%v] to pool [%v]: %s", ce2, pool, err.Error())
+	}
+
+	ce, u := pool.Get()
+	if (u == Upstream{}) {
+		t.Fatalf("expected to receive connection prompt, got connection [%v] instead", ce)
+	}
+
+	// just in case, make sure this is the right upstream
+	if u.GetAddress() != upstream1.GetAddress() {
+		// nolint:lll
+		t.Fatalf("conn pool prompted to connect to the wrong upstream! %s([%v]) != %s([%v])", u.GetAddress(), u, upstream.GetAddress(), upstream)
+	}
+	ce, err = pool.NewConnection(u, UpstreamTestingDialer(u))
+	if err != nil {
+		t.Fatalf("could not make connection with upstream [%v]: %s", u, err)
+	}
+
+	// weight it heavily so that the original connection will come up
+	ce.AddExchange(time.Duration(5) * time.Millisecond)
+	if err := pool.Add(ce); err != nil {
+		t.Fatalf("couldn't re-add connentry [%v] to pool: %s", ce, err)
+	}
+
+	// now the original connection should be there
+	ce, u = pool.Get()
+	if (u != Upstream{}) {
+		t.Fatalf("expected to receive connection, got prompted to connect to [%v] instead", u)
+	}
+
+	if ce.GetAddress() != upstream.GetAddress() {
+		t.Fatalf("expected to retrieve connection to [%s], got ce to [%s]: [%v]", upstream.GetAddress(), ce.GetAddress(), ce)
 	}
 }
 

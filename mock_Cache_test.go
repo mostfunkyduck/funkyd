@@ -28,11 +28,6 @@ func (_m *MockCache) Clean() int {
 	return r0
 }
 
-// Evict provides a mock function with given fields: resp
-func (_m *MockCache) Evict(resp Response) {
-	_m.Called(resp)
-}
-
 // Get provides a mock function with given fields: name, qtype
 func (_m *MockCache) Get(name string, qtype uint16) (Response, bool) {
 	ret := _m.Called(name, qtype)
@@ -67,11 +62,6 @@ func (_m *MockCache) RLock() {
 // RUnlock provides a mock function with given fields:
 func (_m *MockCache) RUnlock() {
 	_m.Called()
-}
-
-// Remove provides a mock function with given fields: response
-func (_m *MockCache) Remove(response Response) {
-	_m.Called(response)
 }
 
 // RemoveSlice provides a mock function with given fields: responses

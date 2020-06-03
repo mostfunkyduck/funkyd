@@ -391,6 +391,7 @@ func (c *connPool) Size() int {
 // will attempt to connect to.
 func (c *connPool) AddUpstream(r *Upstream) {
 	c.upstreams = append(c.upstreams, r)
+	c.cache[r.GetAddress()] = []ConnEntry{}
 }
 
 func (c *connPool) CloseConnection(ce ConnEntry) {
