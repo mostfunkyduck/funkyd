@@ -190,8 +190,9 @@ func (c *connPool) getBestUpstream() (upstream Upstream) {
 		if conns, ok := c.cache[each.GetAddress()]; ok {
 			// should this upstream be taking connections?
 			if !each.IsCooling() {
-				// it should. does it HAVE connections?
-				if len(conns) > 0 {
+				// the upstream is operational, use it immediately if it has connections or if we
+				// haven't used it yet
+				if len(conns) > 0 || each.GetWeight() == 0 {
 					return *each
 				}
 
