@@ -87,7 +87,11 @@ func (l logger) Log(message LogMessage) {
 }
 
 func getWhereString() (str string) {
-	_, file, line, ok := runtime.Caller(2) // 0 is this function, 1 is the Log function calling this, 2 is the original caller
+	// runtime.Caller takes an index for the callstack
+	// 0 is this function, 1 is the Log function calling this, 2 is the original caller
+
+	// nolint:gomnd // it's always going to be 2
+	_, file, line, ok := runtime.Caller(2)
 	if ok {
 		return fmt.Sprintf("%s:%d", file, line)
 	}
