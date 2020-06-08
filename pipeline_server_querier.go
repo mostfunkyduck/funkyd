@@ -68,10 +68,10 @@ func (q *PipelineQuerier) Start() {
 						return
 					}
 					// dispatch to replier
-					go q.Dispatch(qu)
+					q.Dispatch(qu)
 					// if this was a noerror query, cache the reply
 					if qu.Reply.Rcode == 0 {
-						go func() { q.cachingChannel <- qu }()
+						q.cachingChannel <- qu
 					}
 				}()
 			}

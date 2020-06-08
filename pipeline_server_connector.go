@@ -28,35 +28,39 @@ func (c *PipelineConnector) Start() {
 		for {
 			select {
 			case query := <-c.addingChannel:
-				if err := c.connPool.Add(query.Conn); err != nil {
-					Logger.Log(LogMessage{
-						Level: ERROR,
-						Context: LogContext{
-							"what":  "error adding connection to pool",
-							"error": err.Error(),
-							// this is expensive, but it's rare enough that it should be fine
-							"query": fmt.Sprintf("%v", query),
-						},
-					})
-				}
+				go func() {
+					if err := c.connPool.Add(query.Conn); err != nil {
+						Logger.Log(LogMessage{
+							Level: ERROR,
+							Context: LogContext{
+								"what":  "error adding connection to pool",
+								"error": err.Error(),
+								// this is expensive, but it's rare enough that it should be fine
+								"query": fmt.Sprintf("%v", query),
+							},
+						})
+					}
+				}()
 			case query := <-c.closingChannel:
-				c.connPool.CloseConnection(query.Conn)
+				go c.connPool.CloseConnection(query.Conn)
 			case query := <-c.inboundQueryChannel:
-				assignedQuery, err := c.AssignConnection(query)
-				if err != nil {
-					Logger.Log(LogMessage{
-						Level: ERROR,
-						Context: LogContext{
-							"what":  "connection manager failed to assign connection to query",
-							"query": assignedQuery.Msg.String(),
-							"next":  "dispatching to be SERVFAILed",
-						},
-					})
-					// fail to PipelineFinisher
-					go c.Fail(query)
-				}
-				// dispatch to PipelineQuerier
-				go c.Dispatch(assignedQuery)
+				go func() {
+					assignedQuery, err := c.AssignConnection(query)
+					if err != nil {
+						Logger.Log(LogMessage{
+							Level: ERROR,
+							Context: LogContext{
+								"what":  "connection manager failed to assign connection to query",
+								"query": assignedQuery.Msg.String(),
+								"next":  "dispatching to be SERVFAILed",
+							},
+						})
+						// fail to PipelineFinisher
+						c.Fail(query)
+					}
+					// dispatch to PipelineQuerier
+					c.Dispatch(assignedQuery)
+				}()
 			case <-c.cancelChannel:
 				logCancellation("PipelineConnector")
 				return
