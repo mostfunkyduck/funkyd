@@ -67,7 +67,7 @@ func TestConnectionPoolSingleEntry(t *testing.T) {
 }
 
 func TestConnectionPoolMultipleAddresses(t *testing.T) {
-	pool := buildPool()
+	pool := NewConnPool()
 	upstreamNamesSeen := make(map[UpstreamName]bool)
 	max := 10
 	f := func(i int) UpstreamName {
@@ -85,7 +85,16 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 		upstreams = append(upstreams, newUpstream)
 	}
 
+	var i int
 	for _, each := range upstreams {
+		// first, test that the pool prompts for new connections if it has
+		// upstreams with no connections, but an initial weight of 0 - meaning
+		// that it hasn't been tried yet
+		if ce, upstream := pool.Get(); (upstream == Upstream{}) {
+			t.Fatalf("connection pool provided a cached connection even though there were untested upstreams configured."+
+				"pool: [%v], ce: [%v], upstream: [%v], i [%d]",
+				pool, ce, upstream, i)
+		}
 		address := each.GetAddress()
 		ce, err := pool.NewConnection(*each, func(addr string) (*dns.Conn, error) {
 			server, client := net.Pipe()
@@ -96,9 +105,13 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 			t.Fatalf("could not get new connection on address [%s] upstream [%v]: %s", address, each, err.Error())
 		}
 
+		// weight this connection so that its upstream doesn't look untested
+		// adding 1 because on i = 0 it won't add any weight
+		ce.AddExchange(time.Duration(i+1) * time.Minute)
 		if err := pool.Add(ce); err != nil {
 			t.Fatalf("error inserting entry [%v] for upstream [%v] on address [%s]: %s", ce, each, address, err.Error())
 		}
+		i++
 	}
 
 	for i := 0; i < max; i++ {
@@ -110,6 +123,11 @@ func TestConnectionPoolMultipleAddresses(t *testing.T) {
 		}
 
 		upstreamNamesSeen[UpstreamName(ce.GetAddress())] = true
+		// add the connection back to the pool in order to weight down the upstream and get the next one
+		ce.AddExchange(time.Duration(i+1) * time.Minute)
+		if err := pool.Add(ce); err != nil {
+			t.Fatalf("error inserting entry [%v]: %s", ce, err)
+		}
 	}
 }
 
