@@ -14,7 +14,7 @@ services:
     entrypoint: ["/app/funkyd", "-conf", "/etc/funkyd/blackhole.conf"]
 
   testbox:
-    entrypoint: ["/app/funkyd", "-conf", "/etc/funkyd/test.conf"]
+    entrypoint: ["/app/funkyd", "-conf", "/etc/funkyd/pipeline.conf"]
     image: funkyd/funkyd
     networks: 
       testnetwork:

@@ -146,15 +146,11 @@ func main() {
 	InitAPI()
 
 	var server dns.Handler
-	if config.UsePipelineServer {
-		s, _, err := NewPipelineServer(nil, nil)
-		if err != nil {
-			log.Fatalf("could not build pipeline server: %s", err)
-		}
-		server = &s
-	} else {
-		server = NewMutexServer(nil, nil)
+	s, _, err := NewPipelineServer(nil, nil)
+	if err != nil {
+		log.Fatalf("could not build pipeline server: %s", err)
 	}
+	server = &s
 
 	// TODO reimplement this
 	// loadLocalZones(server)
