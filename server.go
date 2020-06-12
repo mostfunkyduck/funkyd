@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strings"
+	"regexp"
 	"syscall"
 	"time"
 
@@ -88,15 +88,16 @@ func sendServfail(w ResponseWriter, duration time.Duration, r *dns.Msg) {
 
 func logQuery(source string, duration time.Duration, response *dns.Msg) {
 	var queryContext LogContext
+	// if we output in JSON, the tab character is lost, but queries rely on it to be readable
+	// so we manually sub the tabs for something better
+	r := regexp.MustCompile("\t+")
 	for _, q := range response.Question {
 		for _, a := range response.Answer {
-			answerBits := strings.Split(a.String(), " ")
 			queryContext = LogContext{
-				"name":         q.Name,
-				"type":         dns.Type(q.Qtype).String(),
-				"opcode":       dns.OpcodeToString[response.Opcode],
-				"answer":       answerBits[len(answerBits)-1],
-				"answerSource": fmt.Sprintf("[%s]", source),
+				"ID":           fmt.Sprintf("%d", response.Id),
+				"question":     string(r.ReplaceAll([]byte(q.String()), []byte("    "))),
+				"answer":       string(r.ReplaceAll([]byte(a.String()), []byte("    "))),
+				"answerSource": source,
 				"duration":     duration.String(),
 			}
 			QueryLogger.Log(LogMessage{

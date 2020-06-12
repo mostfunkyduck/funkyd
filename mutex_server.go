@@ -4,7 +4,7 @@ package main
 // eventually, this will have another 'pipeline' implementation to compare performance against
 
 // The mutex server uses traditional concurrency controls.
-// NOTE: this is deprecated, keeping it around for posterity
+// NOTE: this is deprecated, keeping it around for posterity.
 import (
 	"context"
 	"fmt"
